@@ -1,4 +1,4 @@
-"""BalatroBench W2 子集引擎包（custom subset engine package）。
+"""BalatroEval W2 子集引擎包（custom subset engine package）。
 
 职责：实现一个确定性、可复现的简化 Balatro 风格基准环境，供 Agent 规划／评测
 实验使用；它只覆盖自定义子集（custom subset），不是原版（not vanilla）复刻。

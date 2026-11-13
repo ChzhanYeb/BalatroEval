@@ -1,9 +1,11 @@
-# AGENTS.md — 仓库契约速览：BalatroBench 可判定评测与失败归因（`bench/` = L0 训练环境）
+# AGENTS.md — BalatroEval 仓库契约速览（`bench/` = L0 训练环境底座）
 
-> **项目正式名**：**BalatroBench — Balatro 子集的可判定评测与失败归因**（与同名 `coder/balatrobench` 排行榜工具**同名不同目标**：它回答“谁分高”，本项目回答“为什么低、错在哪类决策”）。
+> **项目正式名**：**BalatroEval**（无副标题）。**定位**：面向大模型 Agent 的**长线规划测试集**——用可判定、可复现的 Balatro 规则子集评测跨回合资源分配、多步决策、长期构建与失败恢复；失败归因仅作**诊断报告层**，不是主定位。
+> **当前能力边界**：长线规划四支柱（跨回合资源分配 / 长期构建 / 失败恢复 / 长线指标）**均未覆盖**，见 [README](README.md) 的「定位与当前实现差距」；不得声称已覆盖。
 > 给 Agent（以及赶时间的人类）的最小上下文。**展开版见 [程序员手册.md](程序员手册.md)**，冲突时以手册为准；v3.0 决策冲突时以 [plan/详细版/07-真实游戏接入与终验.md](plan/详细版/07-真实游戏接入与终验.md) 为准。
 > 阅读顺序：[README.md](README.md)（入口）→ 本文件（契约速览）→ [程序员手册.md](程序员手册.md)（完整手册，v3.0 对齐/终验见 §21）。
-> 代码基线：`c65fb9b`（W2-v2.1-2026-11-12），对齐等级 **L0（未对齐）**。仓库根：`C:\WorkData\005.Agent\dsh-agent-eval`。
+> 代码基线：`c65fb9b`（W2-v2.1-2026-11-12），对齐等级 **L0（未对齐）**。仓库根：`C:\WorkData\005.Agent\dsh-agent-eval`（目录名 ≠ 项目名）。
+> 历史说明：项目曾用名 **BalatroBench**；旧文档已归档到 [archive/legacy-2026-11-13/INDEX.md](archive/legacy-2026-11-13/INDEX.md)，git 历史提交信息不改写。
 > 本文件与手册同时约定：以下内容描述的是**行为契约**，改代码前先读对应章节。
 
 ---
@@ -21,6 +23,8 @@
 
 **v3.0 定位**：`bench/` 不再是“唯一评测环境”，而是两阶段架构的**第一阶段——L0 训练环境底座**（快、可枚举、可 CI）。真实游戏（Balatro + balatrobot）侧只做 12 局小样本终验（计划 W5，目标 L3），**尚未接入**（📋）。`bridge/realgame.py`、`scenarios/v3/`、`runs/w5-real/` 均**未创建**。
 
+**v4.0 定位**：BalatroEval 是面向大模型 Agent 的**长线规划测试集**；失败归因只作诊断报告层（F1–F3 合规/规则理解、F4 规划、F0 证据不足、E1 数据质量门禁，非 Agent 失败类）。**当前长线四支柱均未覆盖**，不得把 L0 引擎能力写成“长线规划已评测”。
+
 ## 2. 这不是什么（红线，任何输出都不得越过）
 
 | ❌ 不得声称 | 事实 |
@@ -36,6 +40,7 @@
 | 捕获回放 = 真游戏终验 | 捕获回放只做 A2/A4 分数/回放验证；终验是 Agent 在真游戏跑完 12 局 |
 | 真游戏 12 局小样本 = 统计显著 | 只做描述统计 + 95% CI，不做显著性主张 |
 | 游戏文件 / mod / `.jkr` 存档 / 含游戏素材截图可以入库 | L8：只提交脱敏状态 JSON、分数、trace、版本清单 |
+| **已覆盖跨回合资源分配 / 长期构建 / 失败恢复 / 长线指标** | **四项均未覆盖**（见 README 差距表）；只能写“目标能力，尚未覆盖，登记 W3 机制改造候选” |
 
 ## 3. 依赖分层（只允许上层 import 下层）
 
@@ -82,7 +87,7 @@ final = floor(chips × mult)                            # Fraction 精确运算�
 
 - **A0–A4**：A0 版本锁定（`game_version`/`build_id`/`deck`/`stake`/依赖版本写入 `scenarios/v3/MANIFEST.json`）；A1 状态/动作 schema 映射（`gamestate`↔`GameState`，动作绑定稳定卡牌 id + 下标快照）；A2 单步分数一致（`engine_score == real_score`）；A3 规则子集（已实现的与 vanilla 1.0.1o 一致，未实现的在 `RULES_VERSION.excluded` 明列）；A4 场景来源与回放（`origin: real_capture | real_counterfactual` + `capture_id` + 验证证据）。
 - **L0–L3 对齐等级**：L0 未对齐（当前 W2）/ L1 分数对齐 / L2 规则子集对齐（W3 目标）/ L3 真游戏终验通过（W5 目标）。
-- **失败归因扩展**：F1–F4 + F0 之外新增 **E1 `env_divergence`**（真游戏结果与训练环境预期不一致，**非 Agent 失败**，单列；判定优先级最低）。
+- **诊断报告层（v4.0）**：F1–F3 属合规/规则理解诊断，F4 属规划诊断（heuristic），F0 为证据不足；**E1 `env_divergence` 是数据质量门禁，不是 Agent 失败类**，单独统计、不进 Agent 失败率。失败归因是诊断层，不是项目主定位或第一创新点。
 - **红线**：当前是 **L0**；W2 的 25 测试/`verify`/`demo` 只证自洽，不能写成 A2/A3 对齐证据，更不能写成 L3 终验证据。
 
 ## 5. 验收命令（改完必跑，输出要贴原始结果）
@@ -135,4 +140,4 @@ python -m compileall -q bench                  # 无输出即通过
 | 判断能否声称保真度 | 手册 §17；默认答案：不能 |
 | 判断对齐等级 / 能否声称终验 | 手册 §17、§21、[07](plan/详细版/07-真实游戏接入与终验.md) §3/§6；当前 L0，不得写“已对齐/已终验” |
 | 真游戏适配器 / 捕获 / 对齐 / 终验 | [07](plan/详细版/07-真实游戏接入与终验.md) 全文、手册 §21；先确认四层依赖与版本链，失败即降级 `CAPTURE_REPLAY_ONLY` |
-| 完整背景 | [W2 实现说明书](W2_BalatroBench_实现说明书_中文.md)、[engine-fidelity](docs/engine-fidelity.md)、[joker-semantics](docs/joker-semantics.md)、[plan/00 项目全貌](plan/00-项目全貌.md) |
+| 完整背景 | [README 定位与差距表](README.md)、[engine-fidelity](docs/engine-fidelity.md)、[joker-semantics](docs/joker-semantics.md)、[plan/00 项目全貌](plan/00-项目全貌.md)；W2 实现说明书文件已缺失，历史归档见 [archive/legacy-2026-11-13/INDEX.md](archive/legacy-2026-11-13/INDEX.md) |

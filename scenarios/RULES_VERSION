@@ -1,8 +1,39 @@
+# scenarios/RULES_VERSION — 规则版本与覆盖范围声明（YAML 片段，供文档与人工核对解析）
+#
+# 读取约定：
+#   1) 本文件只声明"引擎实际实现了什么"，不是"计划做什么"；对齐进度以 docs/engine-fidelity.md 的台账为准。
+#   2) 历史值（rules_version / spec_revision / covered / excluded / fidelity / fidelity_status）是
+#      W2-v2.1（提交 c65fb9b）的事实记录，**不得**为了让结果"看起来对齐"而改写。
+#   3) v3.0（2026-11-13）只做**追加**：新增 target_rules_version 与 alignment_* / training_set /
+#      final_test / real_game_adapter 字段；未执行项一律标 📋 / ⏳。
+#   4) 未完成 A0–A4 签核（docs/engine-fidelity.md 签核模板）之前，**不得**修改 fidelity_status 或
+#      alignment_level；W2 引擎是 L0（自定义公式 + 合成 Joker），不是已对齐。
+
 rules_version: 1.0-subset
+target_rules_version: 3.0-vanilla-subset
 spec_revision: W2-v2.1-2026-11-12
+spec_revision_v3: v3.0-2026-11-13
+project_name: "BalatroEval"
+# v4.0（2026-11-13，改名与定位调整）追加：长线规划支柱覆盖声明。
+# 只陈述事实，不代表已实现；未覆盖项登记为 W3 机制改造候选。
+long_horizon_pillars: "cross_round_resources: NOT_COVERED (money/interest/shop economy in excluded); long_term_build: NOT_COVERED (no shop/build scenarios); failure_recovery: NOT_COVERED (no scenarios or metrics); long_horizon_metrics: NOT_COVERED (only single-step Local Regret)"
+alignment_target: "vanilla 1.0.1o (Steam, Red Deck, White Stake, Ante 1)"
+alignment_level: L0
+alignment_level_note: "L0 未对齐：自定义计分公式 + 合成 Joker + 3 槽位 + 300/800/2000 + 4 手/2 弃；目标 W3 达 L2、W5 达 L3"
+alignment_contract: A0-A4
+alignment_contract_status: "📋 0/5 未签核（A0 版本锁定 / A1 schema / A2 单步分数 / A3 规则子集 / A4 场景来源回放，全部未执行）"
+training_set: "60 (30 real_capture + 30 real_counterfactual)"
+training_set_status: "📋 未创建（scenarios/v3/ 不存在；W3 任务）"
+final_test: "12 real-game runs (3x4)"
+final_test_status: "⏳ 未开始（runs/w5-real/ 不存在；W5 任务）"
+real_game_adapter: "balatrobot (planned)"
+real_game_adapter_status: "📋 未接入（四层依赖未安装；bridge/realgame.py 未创建）"
 covered: [deck52, initial_hand8, play1_5, hand_types9, jokers8_synthetic_fixtures, joker_slots3, blinds3, shop_3choose1, hands4, discards2]
-excluded: [money, interest, booster, tarot, planet, boss_effect, deck_mod, skip_blind, enhancements, editions, rarity, probabilistic_jokers, nested_synergies, vanilla_hand_base_chips, vanilla_hand_base_mult, vanilla_scoring_hand_exclusion]
+excluded: [money, interest, booster, tarot, planet, boss_effect, deck_mod, skip_blind, enhancements, editions, rarity, probabilistic_jokers, nested_synergies, vanilla_hand_base_chips, vanilla_hand_base_mult, vanilla_scoring_hand_exclusion, vanilla_boss_effects, shop_money, consumables, seals, multi_deck, multi_stake, hand_levels_gt1]
 fidelity: score-level only; custom subset formula; RNG NOT replicated
 fidelity_status: NOT_VERIFIED
-verified_against: pending manual capture; 20 scenarios required + 5 calculator checks required
-notes: ["Joker values in bench/jokers.py are synthetic fixtures, not named vanilla Jokers.", "Do not claim 20/20 until docs/engine-fidelity.md contains measured results.", "The supplied 7h7d -> 68 example conflicts with both the custom formula and vanilla level-1 Pair scoring."]
+verified_against: pending A0-A4 real-game capture/replay (primary, 0 rows measured) + EFHIII calculator spot-checks (auxiliary, 0/5 executed)
+notes: ["Joker values in bench/jokers.py are synthetic fixtures, not named vanilla Jokers.", "Do not claim 20/20 until docs/engine-fidelity.md contains measured results.", "The supplied 7h7d -> 68 example conflicts with both the custom formula and vanilla level-1 Pair scoring.", "W2 (rules_version 1.0-subset) uses a custom subset formula: no base hand Chips/Mult, different hand mult table, every played card scores. It is NOT vanilla and NOT aligned.", "The three largest W3 scoring gaps are listed as excluded: vanilla_hand_base_chips, vanilla_hand_base_mult, vanilla_scoring_hand_exclusion.", "v3.0 excludes add vanilla_boss_effects / shop_money / consumables / seals / multi_deck / multi_stake / hand_levels_gt1; enhancements and editions already existed since v2.1.", "vanilla_boss_effects supersedes the v2.1 boss_effect name; both entries are kept so old references stay resolvable.", "W3 target (not yet done): vanilla scoring base Chips x Mult, scoring-card filtering, 8 named vanilla Jokers, Red Deck / White Stake / Ante1 300-450-600, 4 hands / 4 discards, 5 Joker slots, hand level 1 only.", "alignment_level / fidelity_status may only change after A0-A4 sign-off in docs/engine-fidelity.md; editing them earlier is a red-line violation (L9)."]
+
+# v3.0 规划覆盖（📋 未实现；仅用于 W3 对齐改造的验收目标，不代表当前引擎能力）
+planned_covered_v3: [vanilla_hand_base_chips_mult, vanilla_scoring_hand_filtering, jokers8_vanilla_named, joker_slots5, deck_red_plus1_discard, stake_white, ante1_small300_big450_boss600, hands4_discards4, hand_level1_only]

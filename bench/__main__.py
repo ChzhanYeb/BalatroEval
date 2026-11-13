@@ -103,7 +103,7 @@ def main() -> None:
     文件；只有 demo 会按 --log 写日志。
     """
     # 固定 prog，避免以模块方式调用时 usage 里显示成 __main__.py。
-    parser = argparse.ArgumentParser(prog="python -m bench", description="BalatroBench custom ruleset v1")
+    parser = argparse.ArgumentParser(prog="python -m bench", description="BalatroEval custom ruleset v1")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_demo = sub.add_parser("demo", help="run an O1-greedy sample episode")
     # 默认 seed 20261112 是项目约定的固定值：与 spec_revision 日期 2026-11-12 的写法

@@ -1,23 +1,57 @@
-# W2 implementation report
+# BalatroEval W2 实现报告（v3.0 追加说明）
 
-Date: 2026-11-12 (execution environment date)
+> 本文为中文版（原英文版已由本文取代；历史英文版见提交 `c65fb9b`）。
+> **v3.0 追加说明（2026-11-13）**：W2 的已执行事实**没有任何变化**（25/25 单测、verify 10/10、demo 13 步、ev 218 动作）；变的是**定位与验收口径**——W2 在 v3.0 中定位为 **L0 训练环境底座**，"真实游戏人工对照/第三方抽检"从未执行（0/20 + 0/5），v3.0 已把保真度验收升级为 **A0–A4 对齐契约 + 真游戏捕获/回放**，旧 20+5 降为辅助证据。详见 [engine-fidelity.md](engine-fidelity.md) 与 `plan/详细版/07-真实游戏接入与终验.md`。
 
-## Verification executed in this environment
+日期：2026-11-12（W2 执行环境日期）｜ v3.0 说明追加：2026-11-13
 
-| Check | Result | Evidence |
+## 0. W2 在 v3.0 中的定位：L0 训练环境底座
+
+| 项 | 结论 |
+|---|---|
+| W2 交付物 | `bench/` 11 个模块 + 25 项测试 + O1/O2/O3 参照策略 + JSONL 轨迹日志 + CLI（`demo`/`verify`/`ev`） |
+| 规则身份 | **自定义子集公式 + 合成 Joker**（L0，未对齐）；3 Joker 槽位、300/800/2000 目标、4 手/2 弃 |
+| v3.0 定位 | 两阶段架构的**第一阶段**：快、可枚举、可 CI 的**训练/开发环境底座**；**不再是唯一评测环境** |
+| v3.0 未做的事 | 真游戏接入、vanilla 对齐改造、60 决策点训练集、12 局真游戏终验 —— 全部 📋/⏳ 未开始 |
+| 因此**不能**写 | "已接入""已对齐""已终验""与真游戏一致" |
+| 因此**可以**写 | "自定义子集内自洽；25 项测试与 verify 只覆盖已实现行为；对齐等级 L0" |
+
+> W2 的 25/25、10/10、13 步、218 动作等数字是**训练环境内的自洽证据**，不是 A2/A3 对齐证据，更不是 L3 终验证据。
+
+## 本环境中已执行的验证
+
+| 检查项 | 结果 | 证据 |
 |---|---|---|
-| Unit suite | **25/25 passed** | `tests/test_w2_rules.py`; run `python -m unittest discover -s tests -v` |
-| Same-seed full episode determinism | **PASS** | Test runs a complete greedy episode twice and compares final `GameState` values |
-| RNG state round trip | **PASS** | Full `random.Random.getstate()` serialized and restored |
-| O1 vs independent brute-force max | **10/10 match** | `data/o1-bruteforce-10.json`; 218 candidates for each 8-card hand |
-| 3-blind transition smoke test | **PASS to terminal state** | `data/demo-summary.json`; seed `20261112`, 13 transitions, reached blind index 2 and terminal loss |
-| Episode JSONL logging | **13 records written** | `data/episode.jsonl`; records include before/after state summaries, action IDs, score delta and score trace |
-| O2 discard EV | **218 actions, K=50** | `python -m bench ev --seed 20261112 -k 50`; each result contains mean/min/max |
-| Manual real-game comparisons | **NOT VERIFIED** | 20 sample rows remain pending in `docs/engine-fidelity.md` |
-| Third-party calculator checks | **NOT VERIFIED** | 5 checks remain pending in `docs/engine-fidelity.md` |
+| 单元测试套件 | **25/25 通过** | `tests/test_w2_rules.py`；运行 `python -m unittest discover -s tests -v` |
+| 同 seed 整局确定性 | **通过** | 测试把一整局贪心对局跑两遍并比较最终的 `GameState` 值 |
+| RNG 状态往返 | **通过** | 完整序列化并还原 `random.Random.getstate()` |
+| O1 与独立暴力枚举最大值对照 | **10/10 一致** | `data/o1-bruteforce-10-local-20261112.json`；每个 8 张手牌 218 个候选 |
+| 三盲注切换冒烟测试 | **通过，直至终局状态** | `data/w2-demo-summary-local-20261112.json`；seed `20261112`，13 次状态转移，到达盲注索引 2 并以 loss 结束 |
+| 对局 JSONL 日志 | **写入 13 条记录** | `data/w2-demo-local-20261112.jsonl`；记录包含前后状态摘要、动作 ID、分数增量与计分轨迹 |
+| O2 弃牌 EV | **218 个动作，K=50** | `python -m bench ev --seed 20261112 -k 50`；每个结果含 mean/min/max |
+| 真实游戏人工对照 | **未执行（0/20）** | `docs/engine-fidelity.md` 附录 C（v2.x 遗留表）全为 `PENDING`；**v3.0 起升级为 A0–A4 对齐契约 + 真游戏捕获回放（A 表/B 表，均 0 行实测），旧 20 例降为辅助** |
+| 第三方计算器抽检 | **未执行（0/5）** | `docs/engine-fidelity.md` 附录 D（v2.x 遗留表）全为 `PENDING`；**v3.0 起降为辅助证据**（不作为主门槛） |
+| 真游戏接入（balatrobot） | **📋 未开始（W3）** | 四层依赖未安装；`bridge/realgame.py` 未创建 |
+| 真游戏终验（12 局） | **⏳ 未开始（W5）** | `runs/w5-real/` 未创建 |
 
-## Important limitation
+> 上表前 7 行是 W2 当时**已执行**的检查（事实不变）；后 4 行是 v3.0 口径下的状态标注，用于避免把"未执行的保真度检查"读成"已通过"。
 
-The code is internally tested against the declared simplified custom ruleset. The provided specification is internally inconsistent with its vanilla fidelity claim: vanilla Balatro adds hand-base Chips, uses different level-1 hand multipliers, and its scoring-card selection and Joker-phase semantics are more complex than the custom contract. In addition, the 8 generic Jokers in the spec have no specified names or values, so the executable catalog uses explicitly marked synthetic fixtures. These differences are recorded in `scenarios/RULES_VERSION`, `docs/joker-semantics.md`, and `docs/engine-fidelity.md`.
+## 重要限制
 
-Consequently, this report does **not** claim score-level fidelity to vanilla Balatro. The 20+5 empirical gate must remain red until the rules are reconciled and the rows are filled with actual observations.
+代码是针对其所声明的简化自定义规则集做了内部测试的。所提供的规范在「与原版保真」这一点上自相矛盾：原版 Balatro 会加算牌型基础筹码，使用不同的 1 级牌型倍率，其计分牌筛选与 Joker 阶段语义也比本自定义契约更复杂。此外，规范中的 8 个通用 Joker 没有指定名称或数值，因此可执行的目录使用的是明确标注过的合成夹具。这些差异记录在 `scenarios/RULES_VERSION`、`docs/joker-semantics.md` 与 `docs/engine-fidelity.md` 中。
+
+因此，本报告**不**声称与原版 Balatro 达到分数级保真度。旧的 20 例人工对拍 + 5 例抽检仍为 0/20 + 0/5（仅辅助证据）；v3.0 的主门槛 A0–A4 对齐契约也尚未签核，`fidelity_status` 必须保持 `NOT_VERIFIED`。
+
+## 附录：v3.0 验收口径升级（20+5 → A0–A4）
+
+| 项 | v2.1/v2.2 | v3.0（本报告追加说明） |
+|---|---|---|
+| 保真度主门槛 | 20 例人工对拍 + 5 例第三方抽检 | **A0–A4 对齐契约**：A0 版本锁定 / A1 schema 映射 / A2 单步分数 / A3 规则子集 / A4 场景来源与回放 |
+| 主证据 | 手工记录的单一分数 | **A 表**（30 个真游戏捕获决策点）+ **B 表**（30 个 `save`/`load` 反事实变体） |
+| 旧 20 + 5 | 唯一验收物 | 降级为**辅助证据**（`engine-fidelity.md` 附录 C/D），用于快速回归与人工交叉核对 |
+| 当前执行数 | 0/20、0/5 | A 表 0/30、B 表 0/30、A0–A4 0/5 签核、真游戏 0/12 局 |
+| 训练集来源 | 无（W2 未建集） | 真游戏捕获 + 反事实回放；无证据不得入集（📋 未创建 `scenarios/v3/`） |
+| 规则目标 | 自定义子集（已实现） | vanilla 严格子集：基础 Chips×Mult、计分牌筛选、8 具名 Joker、Red Deck/White Stake/Ante1 300-450-600、4 手/4 弃、5 槽位（📋 W3 改造） |
+| 终验 | 无 | 12 局真游戏小样本（3 组 × 4 局），只做描述统计（⏳ W5） |
+
+**一句话**：W2 的数字一个没变，变的是“这些数字能证明什么”——它们只证明 L0 训练环境自洽，不再被当作保真度门槛；保真度由 A0–A4 台账接管。

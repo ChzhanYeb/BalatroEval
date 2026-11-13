@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "balatrobench-w2"
+name = "balatroeval"
 version = "0.1.0"
-description = "A deterministic, explicitly scoped Balatro-like benchmark ruleset"
+description = "A deterministic Balatro subset environment for evaluating long-horizon planning in LLM agents"
 requires-python = ">=3.11"
 dependencies = []
 

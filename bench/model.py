@@ -1,4 +1,4 @@
-"""BalatroBench v1 自定义子集规则的类型化领域模型。
+"""BalatroEval v1 自定义子集规则的类型化领域模型。
 
 职责：定义不可变的 Card / Joker（小丑牌）值对象与可变的单局状态 GameState，
 并提供供日志层（bench.logging）复用的 dict 导出辅助函数。
