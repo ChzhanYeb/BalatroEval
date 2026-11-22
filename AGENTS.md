@@ -4,7 +4,7 @@
 > **当前能力边界**：长线规划四支柱（跨回合资源分配 / 长期构建 / 失败恢复 / 长线指标）**均未覆盖**，见 [README](README.md) 的「定位与当前实现差距」；不得声称已覆盖。
 > 给 Agent（以及赶时间的人类）的最小上下文。**展开版见 [程序员手册.md](程序员手册.md)**，冲突时以手册为准；v3.0 决策冲突时以 [plan/详细版/07-真实游戏接入与终验.md](plan/详细版/07-真实游戏接入与终验.md) 为准。
 > 阅读顺序：[README.md](README.md)（入口）→ 本文件（契约速览）→ [程序员手册.md](程序员手册.md)（完整手册，v3.0 对齐/终验见 §21）。
-> 代码基线：`c65fb9b`（W2-v2.1-2026-11-12），对齐等级 **L0（未对齐）**。仓库根：`C:\WorkData\005.Agent\dsh-agent-eval`（目录名 ≠ 项目名）。
+> 代码基线：`c65fb9b`（W2-v2.1-2026-11-12），对齐等级 **L0（未对齐）**。仓库根：`C:\WorkData\005.Agent\BalatroEval`（目录名 = 项目名）。
 > 历史说明：项目曾用名 **BalatroBench**；旧文档已归档到 [archive/legacy-2026-11-13/INDEX.md](archive/legacy-2026-11-13/INDEX.md)，git 历史提交信息不改写。
 > 本文件与手册同时约定：以下内容描述的是**行为契约**，改代码前先读对应章节。
 
@@ -93,7 +93,7 @@ final = floor(chips × mult)                            # Fraction 精确运算�
 ## 5. 验收命令（改完必跑，输出要贴原始结果）
 
 ```powershell
-Set-Location C:\WorkData\005.Agent\dsh-agent-eval
+Set-Location C:\WorkData\005.Agent\BalatroEval
 
 python -m unittest discover -s tests -v        # 必须：Ran 25 tests / OK
 python -m bench verify --samples 10 --seed 20261112   # 必须：passed true, 每例 218 候选

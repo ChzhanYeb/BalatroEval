@@ -21,7 +21,7 @@
 ## 2. 快速开始
 
 ```powershell
-Set-Location C:\WorkData\005.Agent\dsh-agent-eval
+Set-Location C:\WorkData\005.Agent\BalatroEval
 
 # 1) 全量测试（期望：Ran 124 tests / OK）
 python -m unittest discover -s tests

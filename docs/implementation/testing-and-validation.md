@@ -6,7 +6,7 @@
 ## 1. 如何运行
 
 ```powershell
-Set-Location C:\WorkData\005.Agent\dsh-agent-eval
+Set-Location C:\WorkData\005.Agent\BalatroEval
 
 # 全量测试
 python -m unittest discover -s tests

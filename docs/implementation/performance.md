@@ -76,7 +76,7 @@
 ## 7. 复现
 
 ```powershell
-Set-Location C:\WorkData\005.Agent\dsh-agent-eval
+Set-Location C:\WorkData\005.Agent\BalatroEval
 $env:PYTHONPYCACHEPREFIX = "$env:TEMP\balatroeval-pycache"
 python -m benchmarks.bench --quick     # ~11 s
 python -m benchmarks.bench             # ~54 s（本机实测 total_s=53.70）

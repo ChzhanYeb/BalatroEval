@@ -52,7 +52,7 @@
 环境：Windows + PowerShell + Python ≥ 3.11（实测 3.15.2），**无第三方依赖**（stdlib only；MCP SDK 只在 bridge 运行时需要）。
 
 ```powershell
-Set-Location C:\WorkData\005.Agent\dsh-agent-eval
+Set-Location C:\WorkData\005.Agent\BalatroEval
 
 python -m unittest discover -s tests             # 期望：Ran 124 tests / OK
 python -m bench rules                            # 规则声明（300/450/600、4/4、5 槽）
@@ -238,7 +238,7 @@ python -m compileall -q bench evaluation scenarios benchmarks bridge/server.py
 ## 命名与目录说明
 
 - **项目名**：`BalatroEval`。Python 发行名 `balatroeval`；包目录仍为 `bench/`，CLI 仍为 `python -m bench`（包名/命令名与项目名解耦，改包名会破坏测试与调用方）。
-- **仓库目录**：`dsh-agent-eval` 暂不改名；`bridge/mcp-overlay.yml` 的绝对路径锚定该目录。
+- **仓库目录**：`BalatroEval`，与项目名一致；GitHub 仓库为 `ChzhanYeb/BalatroEval`（旧名 `dsh-agent-eval` 只应出现在 git 历史与旧链接重定向中）。注意 `bridge/mcp-overlay.yml` 与 DSH profile `bench-local` 的 `cordis.patch.yml` 用绝对路径锚定该目录，**改名后必须同步重写并重建 `.venv`**。
 - **MCP 连接名**：`balatro` / `balatro_bridge` / profile `bench-local` 为历史连接标识，与 `evidence/W1` 验收证据一致，本轮保留。
 - **历史旧名**：`BalatroBench` 仅允许出现在 git 历史提交信息、`archive/legacy-2026-11-13/` 归档件、以及“历史说明”中；不得出现在标题/首段/对外材料。
 - **第三方同名项目**：`coder/balatrobench`（排行榜工具）与本项目无隶属关系；仅在“相关工作”中用一句客观区分（它做结果展示，本项目做长线规划测试集），**不再作为命名规则或首段内容**。
