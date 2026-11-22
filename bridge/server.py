@@ -46,22 +46,34 @@ def discard_cards(card_ids: list[str]) -> str:
 
 
 def choose_joker(index: int | None = None) -> str:
-    """商店扩展工具：选择候选 Joker（null=跳过）；非扩展模式返回 NOT_ALLOWED。"""
+    """商店工具：买入第 index 个报价（花钱），null 表示离开商店。"""
     return _tool_result(dispatch_tool(SESSION, "choose_joker", {"index": index}))
+
+
+def sell_joker(index: int) -> str:
+    """商店工具：卖掉第 index 个已拥有的 Joker（返还半价，腾出槽位）。"""
+    return _tool_result(dispatch_tool(SESSION, "sell_joker", {"index": index}))
+
+
+def reroll_shop() -> str:
+    """商店工具：花 reroll 价换一批报价。"""
+    return _tool_result(dispatch_tool(SESSION, "reroll_shop"))
 
 
 def reset_episode(seed: int | None = None, hand_ids: list[str] | None = None,
                   joker_ids: list[str] | None = None, blind_idx: int | None = None,
                   total_score: int | None = None, hands_left: int | None = None,
                   discards_left: int | None = None, target: int | None = None,
+                  money: int | None = None, shop_open: bool = False,
                   allowed_action_kinds: list[str] | None = None,
                   max_steps: int | None = None) -> str:
-    """开始新 episode（可固定手牌/种子/资源，用于决策点场景）。"""
+    """开始新 episode（可固定手牌/种子/资源/金钱，用于决策点场景）。"""
     return _tool_result(dispatch_tool(SESSION, "reset_episode", {
         "seed": seed, "hand_ids": hand_ids, "joker_ids": joker_ids,
         "blind_idx": blind_idx, "total_score": total_score,
         "hands_left": hands_left, "discards_left": discards_left,
-        "target": target, "allowed_action_kinds": allowed_action_kinds,
+        "target": target, "money": money, "shop_open": shop_open,
+        "allowed_action_kinds": allowed_action_kinds,
         "max_steps": max_steps,
     }))
 
@@ -71,6 +83,8 @@ TOOL_FUNCTIONS = {
     "play_cards": play_cards,
     "discard_cards": discard_cards,
     "choose_joker": choose_joker,
+    "sell_joker": sell_joker,
+    "reroll_shop": reroll_shop,
     "reset_episode": reset_episode,
 }
 

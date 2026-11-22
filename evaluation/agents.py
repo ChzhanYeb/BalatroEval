@@ -143,9 +143,11 @@ class RandomAgent:
 
 @dataclass
 class OracleGreedyAgent:
-    """局部最强脚本策略：play 用 O1 精确 argmax；discard 用 O2 近似 EV；商店选 0。
+    """局部最强脚本策略：play 用 O1 精确 argmax；discard 用 O2 近似 EV；
+    商店「能买就买第一个报价，否则离开」（不 reroll、不卖、不为利息存钱）。
 
-    ���是“局部贪心参照”，不是全局最优；用于 golden/integration 测试与负对照基线。
+    这是“局部贪心参照”，不是全局最优，也不是经济最优；用于 golden/integration 测试
+    与负对照基线。
     """
 
     agent_id: str = "oracle-greedy"
@@ -163,22 +165,25 @@ class OracleGreedyAgent:
             evs = discard_ev(state, K=self.discard_samples)
             best_ev = max(evs, key=lambda item: (item.mean, -item.indices[0] if item.indices else 0))
             return AgentDecision(Action("discard", card_ids=best_ev.card_ids))
-        # shop 阶段
-        choose = [a for a in legal_actions if a.kind == "choose_joker"]
-        if choose:
-            real = [a for a in choose if a.joker_index is not None]
-            return AgentDecision((real or choose)[0])
+        # shop 阶段：买第一个买得起的，否则离开（legal_actions 已过滤掉买不起的报价）
+        buy = [a for a in legal_actions if a.kind == "choose_joker" and a.joker_index is not None]
+        if buy:
+            return AgentDecision(buy[0])
+        leave = [a for a in legal_actions if a.kind == "choose_joker" and a.joker_index is None]
+        if leave:
+            return AgentDecision(leave[0])
         return AgentDecision(legal_actions[0])
 
 
 def _state_from_observation(observation: dict) -> GameState:
-    """从 observation 重建 best_play 需要的最小状态（hand/jokers/phase）。
+    """从 observation 重建 best_play 需要的最小状态（hand/jokers/money/phase）。
 
     注意：这不是完整状态（没有 deck/rng）；只用于 Agent 侧的局部评估，不能用于推进游戏。
     """
     hand = [card_from_id(item["id"]) for item in observation.get("hand", [])]
     jokers = [Joker.from_dict(item) for item in observation.get("jokers", [])]
     blind = observation.get("blind", {})
+    economy = observation.get("economy", {})
     return GameState(
         blind_idx=int(blind.get("index", 0)),
         blind_kind=blind.get("kind", "small"),
@@ -188,6 +193,7 @@ def _state_from_observation(observation: dict) -> GameState:
         jokers=jokers,
         hands_left=int(blind.get("hands_left", 0)),
         discards_left=int(blind.get("discards_left", 0)),
+        money=int(economy.get("money", 0)),
         phase=observation.get("episode", {}).get("phase", "play"),
     )
 
@@ -267,7 +273,11 @@ def default_prompt_builder(observation: dict, legal_actions: Sequence[Action]) -
     system = (
         "You are playing a deterministic Balatro rules subset. Reply with ONE JSON object only: "
         '{"kind":"play","card_ids":["c7h","c7d"]} or {"kind":"discard","card_ids":[...]} '
-        'or {"kind":"choose_joker","index":0}. Use stable card ids from the hand.'
+        'or a shop action: {"kind":"choose_joker","index":0} (buy), '
+        '{"kind":"choose_joker","index":null} (leave), {"kind":"sell_joker","index":0}, '
+        '{"kind":"reroll_shop"}. Use stable card ids from the hand. '
+        "Money is the only resource that carries across blinds; interest pays $1 per $5 held "
+        "(cap $5) at the next blind clear."
     )
     user = (
         f"{observation_text}\nAllowed action kinds: {kinds}\n"

@@ -70,6 +70,7 @@ class EpisodeResult:
     blinds_cleared: int = 0
     final_phase: str | None = None
     final_blind_idx: int | None = None
+    final_money: int = 0
     legality_rate: float | None = None
     invalid_actions: int = 0
     play_decisions: int = 0
@@ -104,6 +105,7 @@ class EpisodeResult:
             "blinds_cleared": self.blinds_cleared,
             "final_phase": self.final_phase,
             "final_blind_idx": self.final_blind_idx,
+            "final_money": self.final_money,
             "legality_rate": self.legality_rate,
             "invalid_actions": self.invalid_actions,
             "play_decisions": self.play_decisions,
@@ -229,7 +231,7 @@ async def run_episode_async(
                     break
 
                 action: Action = decision.action
-                # 局部 regret 只在“play 决策”上定义；discard/choose_joker 不计入 regret。
+                # 局部 regret 只在“play 决策”上定义；discard/商店动作不计入 regret。
                 action_regret: float | None = None
                 action_exact: int | None = None
                 if state_before.phase == "play" and action.kind == "play":
@@ -340,6 +342,7 @@ async def run_episode_async(
         "max_regret": max(regrets) if regrets else None,
         "optimality_rate": (optimal_hits / play_decisions) if play_decisions else None,
         "blinds_cleared": play_scores,
+        "final_money": final_state.money,
         "agent_latency_ms": round(agent_latency_total, 4),
         "env_latency_ms": round(env_latency_total, 4),
         "total_duration_ms": round(duration_ms, 4),
@@ -370,6 +373,7 @@ async def run_episode_async(
         blinds_cleared=blinds_cleared,
         final_phase=final_state.phase,
         final_blind_idx=final_state.blind_idx,
+        final_money=final_state.money,
         legality_rate=metrics["legality_rate"],
         invalid_actions=invalid_actions,
         play_decisions=play_decisions,

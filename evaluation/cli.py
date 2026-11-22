@@ -81,8 +81,8 @@ def _summary_payload(batch: BatchSummary) -> dict:
         "table": render_markdown_table(groups),
         "results": [
             {k: r.get(k) for k in ("task_id", "scenario_id", "status", "outcome",
-                                   "total_reward", "steps", "mean_regret",
-                                   "optimality_rate", "trace_path")}
+                                   "total_reward", "steps", "final_money",
+                                   "mean_regret", "optimality_rate", "trace_path")}
             for r in rows
         ],
     }

@@ -25,7 +25,8 @@ from typing import Callable, Iterable, Sequence
 METRIC_KEYS = (
     "success_rate", "completion_rate", "truncation_rate", "timeout_rate", "error_rate",
     "mean_reward", "median_reward", "mean_blinds", "mean_steps", "mean_legality",
-    "mean_regret", "optimality_rate", "p50_agent_ms", "p95_agent_ms",
+    "mean_regret", "optimality_rate", "mean_final_money",
+    "p50_agent_ms", "p95_agent_ms",
     "p50_env_ms", "p95_env_ms", "p50_total_ms", "p95_total_ms",
 )
 
@@ -68,6 +69,7 @@ def summarize(results: Sequence[dict]) -> dict:
     legality = [float(r["legality_rate"]) for r in rows if r.get("legality_rate") is not None]
     regret = [float(r["mean_regret"]) for r in rows if r.get("mean_regret") is not None]
     optimality = [float(r["optimality_rate"]) for r in rows if r.get("optimality_rate") is not None]
+    final_money = [float(r["final_money"]) for r in rows if r.get("final_money") is not None]
     agent_ms = [float((r.get("latency_ms") or {}).get("agent", 0)) for r in rows]
     env_ms = [float((r.get("latency_ms") or {}).get("env", 0)) for r in rows]
     total_ms = [float((r.get("latency_ms") or {}).get("total", 0)) for r in rows]
@@ -92,6 +94,7 @@ def summarize(results: Sequence[dict]) -> dict:
         "mean_legality": statistics.fmean(legality) if legality else None,
         "mean_regret": statistics.fmean(regret) if regret else None,
         "optimality_rate": statistics.fmean(optimality) if optimality else None,
+        "mean_final_money": statistics.fmean(final_money) if final_money else None,
         "p50_agent_ms": _percentile(agent_ms, 50),
         "p95_agent_ms": _percentile(agent_ms, 95),
         "p50_env_ms": _percentile(env_ms, 50),

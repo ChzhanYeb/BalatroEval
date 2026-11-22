@@ -28,6 +28,7 @@ from bench.environment import Environment, ResetSpec
 from bench.hand_eval import evaluate_hand
 from bench.jokers import CATALOG_BY_ID
 from bench.oracle import best_play
+from bench.rules_version import VANILLA_SUBSET_V1
 from bench.scoring import score_hand
 from scenarios.loader import load_scenarios
 
@@ -199,9 +200,11 @@ def main(argv: list[str] | None = None) -> int:
         "cwd": str(ROOT),
         "quick": args.quick,
         "rules": {
-            "rules_version": "vanilla_1.0.1o_subset_v1",
+            "rules_version": VANILLA_SUBSET_V1.rules_version,
             "hands_per_blind": 4, "discards_per_blind": 4,
             "hand_size": 8, "joker_slots": 5,
+            "starting_money": VANILLA_SUBSET_V1.starting_money,
+            "shop_offer_count": VANILLA_SUBSET_V1.shop_offer_count,
         },
         "rule_core": bench_rule_core(args.quick),
         "engine": bench_engine(args.quick),
