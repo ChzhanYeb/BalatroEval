@@ -43,7 +43,8 @@ reset → observe → agent.decide_async → validate → step → observe → .
 
 - 每步记录 trace（含 action、valid/error、reward、前后 state_hash、observation 文本、score、延迟）；
 - `oracle_enabled=True` 时，在每个 **play 决策**前计算 O1 最优分，写 `decision_metric`（regret/optimality）；
-- discard 决策不进入 regret 分母（避免“正确弃牌被记最大 regret”）。
+- discard 决策不进入 regret 分母（避免“正确弃牌被记最大 regret”）；
+- **商店动作**（买/卖/reroll/离开）也不进 regret：经济决策没有单步 oracle，结果是 `final_money` 与后续盲注表现；报告里要单列，不得混进 play 的 regret 均值。
 
 ## 2. 批量执行
 
@@ -176,7 +177,7 @@ python -m evaluation report --run-dir runs/demo-batch
 
 输出 JSON（含 `summary/groups/table/manifest`）。指标定义见 api-reference §12.4 与 metrics.py：
 - `legality_rate`：合法动作 / 全部动作；
-- `mean_regret` / `optimality_rate`：仅 play 决策；
+- `mean_regret` / `optimality_rate`：仅 play 决策；商店决策另看 `final_money` / `mean_final_money`（描述量，不是效率指标）；
 - `success_rate`：status=completed 且 outcome=win；
 - `truncation_rate`/`timeout_rate`/`error_rate`：单列，不混入成功率；
 - `latency_ms.agent` 与 `latency_ms.env` 分开；模型推理不混入环境性能。

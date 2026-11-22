@@ -1,7 +1,7 @@
 # Balatro 规则与设计调研总纲（vanilla 1.0.1o）
 
 > **本目录是什么**：对《Balatro》（LocalThunk / Playstack，2024-02-20 发行，基线版本 **1.0.1o**）**完整规则与设计**的调研总结，供 BalatroEval 的 W3「规则对齐（L0→L2）」与后续报告引用。 \
-> **不是什么**：不是对齐证据，也不是本仓库引擎的现状描述。`bench/` 已于 2026-11-17 实现 **vanilla 1.0.1o 子集 v1**（IMPLEMENTED），但对齐等级仍为 **L0**、`fidelity_status` 仍 `NOT_VERIFIED`（A2/A3 实测 0 行），因此本目录只提供 **vanilla 事实/目标值**，任何“已对齐 / A2 通过 / L2 达成”的表述都必须等 `docs/engine-fidelity.md` A 表有真游戏实测行。当前实现状态见 [../implementation/implementation-status.md](../implementation/implementation-status.md)。
+> **不是什么**：不是对齐证据，也不是本仓库引擎的现状描述。`bench/` 已于 2026-11-17 实现 **vanilla 1.0.1o 子集 v1**（IMPLEMENTED），但对齐等级仍为 **L0**、`fidelity_status` 仍 `NOT_VERIFIED`（A2/A3 实测 0 行），因此本目录只提供 **vanilla 事实/目标值**，任何“已对齐 / A2 通过 / L2 达成”的表述都必须等 `docs/quality/engine-fidelity.md` A 表有真游戏实测行。当前实现状态见 [../implementation/implementation-status.md](../implementation/implementation-status.md)。
 > 调研日期：**2026-11-15** ｜ 证据等级：✅ 已打开页面核对 / △ 仅元数据 / ⏳ 仅检索未核实
 > 语言：中文（首次出现给英文原名）｜ 版本：v1.0
 >
@@ -16,10 +16,10 @@
 | **[rules.md](rules.md)** | 规则机制事实：一局结构、算分、牌型与等级、盲注/Ante、资源、经济、商店、卡牌改造、Tag、模式、术语表 | 实现 `bench/` 规则、写对齐文档 |
 | **[content.md](content.md)** | 全内容目录：150 Joker、消耗品 22/12/18、Voucher 32、牌组 15、赌注 8、Boss 28、Tag、增强/封蜡/版本、补充包、随机权重 | 选卡、做内容映射、核对数值 |
 | **[design.md](design.md)** | 设计分析：为什么 chips×mult、加法/乘法复利、随机性与信息、UX 可读性、难度阶梯、美术音频、商业与评价、可迁移教训 | 写报告"相关工作/设计启示"、理解评测环境取舍 |
-| **[engine-gap.md](engine-gap.md)** | **本仓库 `bench/`（L0）与 vanilla 的 23 项差异表 + W3 目标值清单 + 验收映射** | W3 直接执行 |
-| [../data-sources.md](../data-sources.md) | 来源与许可总清单（本目录引用的新增来源已登记） | 合规检查 |
-| [../joker-semantics.md](../joker-semantics.md) | W3 要实现的 8 个 vanilla Joker 语义台账（📋 未实现） | W3 任务 4 |
-| [../engine-fidelity.md](../engine-fidelity.md) | 对齐台账 A0–A4（📋 未实测） | 验收 |
+| **[engine-gap.md](engine-gap.md)** | **本仓库 `bench/` 与 vanilla 的 23 项差异（2026-11-15 L0 快照）+ 已落地的目标值清单** | 追溯规则差异来源 |
+| [../data-sources.md](../quality/data-sources.md) | 来源与许可总清单（本目录引用的新增来源已登记） | 合规检查 |
+| [../joker-semantics.md](../quality/joker-semantics.md) | 8 个已实现的 vanilla Joker 语义台账（未与真游戏验证） | 规则语义参考 |
+| [../engine-fidelity.md](../quality/engine-fidelity.md) | 对齐台账 A0–A4（📋 未实测） | 验收 |
 
 ---
 
@@ -31,7 +31,7 @@
 - **来源许可**：`balatrowiki.org` 为 **CC BY-NC-SA 3.0** —— 本目录**只提取不可版权的事实数值**（名称/数字/条件/价格/表格数值），**所有描述均为自写**，未搬运 Wiki 句子、表格布局或图片。Wikipedia 为 CC BY-SA，同样只取事实并改写。媒体报道只作简短引用并注明来源。
 - **L8 红线**：不包含游戏文件、mod、`.jkr` 存档、含游戏素材的截图；本目录全部为文字与自绘表格。
 
-> 与 `plan/00-项目全貌.md` 决策 D12/D14、`docs/data-sources.md` §5 一致；新增来源已在 `docs/data-sources.md` **第 8 节**登记（§9 为变更记录）。
+> 与 `plan/00-项目全貌.md` 决策 D12（数据来源与许可）、`docs/quality/data-sources.md` §5 一致；新增来源已在 `docs/quality/data-sources.md` **第 8 节**登记（§9 为变更记录）。
 
 ---
 
@@ -101,7 +101,7 @@ Run（选牌组 + 赌注）
 | Ante | 基础分 | 说明 |
 |---:|---:|---|
 | 0 及以下 | 100 | 仅 Hieroglyph/Petroglyph 可达 |
-| 1 | **300** | 本项目 W3 目标|
+| 1 | **300** | 本项目已实现（Ante 1） |
 | 2 | 800 | |
 | 3 | 2,000 | |
 | 4 | 5,000 | |
@@ -202,11 +202,12 @@ Run（选牌组 + 赌注）
 | 结论 | 含义 | 落点 |
 |---|---|---|
 | **调研时（2026-11-15）`TARGETS=(300,800,2000)` 不是 Ante 1 的三盲注** | 它是 Ante 1/2/3 的基础分；Ante 1 三盲注应为 300/450/600。**2026-11-17 已按此改造实现**（见 [../implementation/implementation-status.md](../implementation/implementation-status.md)），对齐仍未验证 | [engine-gap.md](engine-gap.md) §1/§4 |
-| **计分缺的是"牌型基础 Chips×Mult + 计分牌筛选"** | 不只是换数值表；high card 5 张只计 1 张，四条带 kicker 只计 4 张 | 同上 §2 |
-| **Red Deck 目标配置 = 4 手 / 4 弃 / 5 槽 / 300/450/600** | 与 plan W3 任务 4 一致；基础牌组是 4 手/3 弃，Red Deck +1 弃 | 同上 §7 |
-| **Boss 效果不在 W3 范围，但 Boss 仍会出现** | 场景入集时必须排除带效果的 Boss，或在场景元数据注明"无 Boss 效果" | 同上 §5 |
-| **vanilla 触发顺序与"contains"语义必须实测** | 不能只照 Wiki 实现 Joker 条件；A2/A4 需要区分 4K/5K 的包含边界 | 同上 §2.1 + [joker-semantics.md](../joker-semantics.md) §3.3 |
-| **本目录不能当对齐证据** | 所有数值只是"目标值"；`fidelity_status` 未签核前保持 `NOT_VERIFIED` | plan/07 §3 |
+| **计分缺的是"牌型基础 Chips×Mult + 计分牌筛选"** | 不只是换数值表；high card 5 张只计 1 张，四条带 kicker 只计 4 张（**已于 2026-11-17 实现**） | 同上 §2 |
+| **Red Deck 目标配置 = 4 手 / 4 弃 / 5 槽 / 300/450/600** | **已实现（2026-11-17）**；基础牌组是 4 手/3 弃，Red Deck +1 弃 | 同上 §7 |
+| **经济是第二资源维度，也是“跨回合”的唯一载体** | **已实现（v2，2026-11-22）**：$4 起始、奖励 3/4/5、每手/每弃牌 $1、利息 cap $5、2 报价商店；价格/权重/顺序仍待实测 | 同上 §5 |
+| **Boss 效果不在子集范围，但 Boss 仍会出现** | 场景入集时必须排除带效果的 Boss，或在场景元数据注明"无 Boss 效果" | 同上 §5 |
+| **vanilla 触发顺序与"contains"语义必须实测** | 不能只照 Wiki 实现 Joker 条件；A2/A4 需要区分 4K/5K 的包含边界 | 同上 §2.1 + [joker-semantics.md](../quality/joker-semantics.md) §3.3 |
+| **本目录不能当对齐证据** | 所有数值是"实现值"，不是"已验证值"；`fidelity_status` 未签核前保持 `NOT_VERIFIED` | plan/07 §3 |
 
 ---
 
@@ -215,11 +216,11 @@ Run（选牌组 + 赌注）
 | 文档 | 关系 |
 |---|---|
 | `plan/00-项目全貌.md` | D1/D2/D11/D12/D14 的环境与数据来源决策；本目录为其提供规则事实底座 |
-| `plan/01-每周任务.md`  | 任务 3（vanilla 计分）、任务 4（8 Joker + 资源/盲注）直接引用 [engine-gap.md](engine-gap.md) §7 |
+| `plan/01-任务进度.md`  | 原「W3 任务 3–4」（vanilla 计分、8 Joker + 资源/盲注）已作为**计划外增量**在 2026-11-17 完成，并直接引用 [engine-gap.md](engine-gap.md) §7 |
 | `plan/详细版/07-真实游戏接入与终验.md` | A0–A4 对齐契约；本目录的数值需经 A2/A4 实测才算数 |
-| `docs/data-sources.md` | 来源与许可总清单；本目录新增来源已登记（§8） |
-| `docs/joker-semantics.md` | 8 个 vanilla Joker 的语义台账（📋 未实现）；本目录 [content.md](content.md) 补全其目录位置 |
-| `docs/engine-fidelity.md` | 对齐台账；只有 A 表/B 表实测行能改变 `fidelity_status` |
+| `docs/quality/data-sources.md` | 来源与许可总清单；本目录新增来源已登记（§8） |
+| `docs/quality/joker-semantics.md` | 8 个 vanilla Joker 的语义台账（📋 未实现）；本目录 [content.md](content.md) 补全其目录位置 |
+| `docs/quality/engine-fidelity.md` | 对齐台账；只有 A 表/B 表实测行能改变 `fidelity_status` |
 | `scenarios/RULES_VERSION` | 规则版本与 `excluded` 列表；W3 改造后同步 |
 
 ---
@@ -228,8 +229,8 @@ Run（选牌组 + 赌注）
 
 1. **版本优先**：vanilla 事实以 1.0.1o 为准；Wiki 若已更新到后续版本，冲突处标 ⏳ 并以真游戏 `gamestate` 为准。
 2. **数值变更**：任何数值改动先改来源清单与证据等级，再改正文；不得出现"无来源的新数字"。
-3. **对齐状态**：本目录任何"目标值"不得被改写为"已验证"；状态变更只发生在 `docs/engine-fidelity.md`。
-4. **合规**：继续遵守 CC BY-NC-SA 的"只取事实、描述自写"；不新增游戏文件/截图；新增来源先登记 `docs/data-sources.md`。
+3. **对齐状态**：本目录任何"目标值"不得被改写为"已验证"；状态变更只发生在 `docs/quality/engine-fidelity.md`。
+4. **合规**：继续遵守 CC BY-NC-SA 的"只取事实、描述自写"；不新增游戏文件/截图；新增来源先登记 `docs/quality/data-sources.md`。
 5. **更新触发**：游戏/mod 版本变化、W3 对齐改造、A2/A4 实测结果出现时，同步更新本目录对应章节与 [engine-gap.md](engine-gap.md)。
 
 ---
@@ -249,7 +250,7 @@ Run（选牌组 + 赌注）
 | [Decks](https://balatrowiki.org/w/Decks) / [Red Deck](https://balatrowiki.org/w/Red_Deck) | 15 牌组/Red Deck +1 弃 | ✅ 2026-11-15 | 同上 |
 | [Consumables](https://balatrowiki.org/w/Consumables) | 2 消耗品槽/三类消耗品 | ✅ 2026-11-15 | 同上 |
 
-> 完整来源（含 design.md 的媒体来源）见各文末来源清单与 `docs/data-sources.md` §8。
+> 完整来源（含 design.md 的媒体来源）见各文末来源清单与 `docs/quality/data-sources.md` §8。
 
 ---
 

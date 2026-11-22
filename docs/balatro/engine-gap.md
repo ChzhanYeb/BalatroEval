@@ -1,16 +1,16 @@
 # BalatroEval ↔ vanilla Balatro 规则差异映射（L0 现状 → W3 目标）
 
-> 用途：把 [rules.md](rules.md) 记录的原版事实，对照本仓库 `bench/`（提交 `c65fb9b`，W2-v2.1）的实际实现，逐项列出差异与 W3 目标值，供 [plan/01-每周任务.md](../../plan/01-每周任务.md) W3 任务 3–4 直接使用。
-> **边界（红线）**：本文是**差异清单**，不是对齐证据。当前规则等级仍是 **L0（未对齐）**；`scenarios/RULES_VERSION` 的 `fidelity_status` 保持 `NOT_VERIFIED`。任何"已对齐/A2 通过"的表述都无效，直到 `docs/engine-fidelity.md` A 表有真游戏实测行。
+> 用途：把 [rules.md](rules.md) 记录的原版事实，对照本仓库 `bench/`（提交 `c65fb9b`，W2-v2.1）的实际实现，逐项列出差异与目标值；这些目标值曾是 [plan/01-任务进度.md](../../plan/01-任务进度.md) W3 任务 3–4 的设计输入，已于 2026-11-17 落地。
+> **边界（红线）**：本文是**差异清单**，不是对齐证据。当前规则等级仍是 **L0（未对齐）**；`scenarios/RULES_VERSION` 的 `fidelity_status` 保持 `NOT_VERIFIED`。任何"已对齐/A2 通过"的表述都无效，直到 `docs/quality/engine-fidelity.md` A 表有真游戏实测行。
 > **2026-11-17 状态更新**：§1/§4 的 `bench/` 现状列是 **2026-11-15 的 L0 快照**；W3 目标值（§7）已在 `bench/` 实现（见 [../implementation/rules-implementation.md](../implementation/rules-implementation.md) 与 `tests/`），但 A2/A3 真游戏实测仍未执行，因此本文的“目标值”与“现状”不应再混读：**实现 ≠ 验证**。
-> 基线：`bench/` `c65fb9b`；vanilla 事实来源见 [rules.md](rules.md) §13 与 [content.md](content.md) §12。
-> 版本：2026-11-15 ｜ 状态：📋 全部为待改造项（W3）
+> 基线：`bench/` `c65fb9b`（**2026-11-15 快照**）；vanilla 事实来源见 [rules.md](rules.md) §13 与 [content.md](content.md) §12。
+> 版本：2026-11-15 ｜ 状态：📋 **历史差异快照**——§7 的 W3 目标值已于 2026-11-17 在 `bench/` 实现（仍未与真游戏对齐验证）；本文的“现状”列只描述 2026-11-15 的 L0 实现，不是当前代码。
 
 ---
 
-## 0. 一句话结论
+## 0. 一句话结论（2026-11-15 快照）
 
-当前引擎是一个**自定义 3 盲注、3 Joker 槽位、无金钱/商店/消耗品/卡牌改造**的确定性计数子集；它缺的不只是数值，而是**原版计分公式（牌型基础 Chips×Mult + 计分牌筛选 + 手牌等级）**与**资源/经济层**。W3 需要改的是 `scoring.py`、`jokers.py`、`engine.py` 三处核心常量与语义，并且必须先用真游戏捕获（A2/A4）证明改造后的分数与资源一致。
+快照时的引擎是一个**自定义 3 盲注、3 Joker 槽位、无金钱/商店/消耗品/卡牌改造**的确定性计数子集；它缺的不只是数值，而是**原版计分公式（牌型基础 Chips×Mult + 计分牌筛选 + 手牌等级）**与**资源/经济层**。这些缺口已在 2026-11-17 的 vanilla 子集 v1 中实现（Boss 效果、金钱/商店、消耗品、升级曲线等仍 excluded），但 A2/A3 真游戏对齐仍未执行。
 
 ---
 
@@ -18,7 +18,7 @@
 
 | # | 维度 | vanilla 1.0.1o（事实） | `bench/` 现状（L0） | 差异等级 | W3 动作（来源） |
 |---:|---|---|---|---|---|
-| 1 | 一局范围 | 8 个 Ante × 3 盲注（Small/Big/Boss），Ante 8 Showdown 通关；之后可 Endless | 3 个"盲注"，第 3 个达标即 `win` | **高** | 只做 Ante 1 三盲注（W3 任务 3–4） |
+| 1 | 一局范围 | 8 个 Ante × 3 盲注（Small/Big/Boss），Ante 8 Showdown 通关；之后可 Endless | 3 个"盲注"，第 3 个达标即 `win` | **高** | 已做 Ante 1 三盲注（2026-11-17） |
 | 2 | 盲注目标 | Ante 1 基础 300；Small ×1=300、Big ×1.5=450、Boss ×2=600（Red Deck / White Stake） | `TARGETS = (300, 800, 2000)` 顺序递增，等于 Ante 1/2/3 的基础分，**不是同一 Ante 的三盲注** | **高** | `TARGETS = (300, 450, 600)`；语义改为 Ante 1 三盲注 |
 | 3 | 手/弃资源 | 基础 4 手 / 3 弃；Red Deck **+1 弃**（→ 4 手 / 4 弃）；Blue Stake −1 弃 | `HANDS_PER_BLIND=4`、`DISCARDS_PER_BLIND=2` | **高** | Red Deck 目标值 4/4 |
 | 4 | 手牌上限 | 8（可被 Boss/卡牌改变） | `INITIAL_HAND_SIZE=8` | ✅ 同 | 保持；补"手牌上限"独立常量 |
@@ -30,7 +30,7 @@
 | 10 | 计分顺序 | 牌型基础 → 打出牌逐张 → 手中 held/Steel 类 → Joker 从左到右 → 版本/重触发；末尾一次取整 | 牌型基础（仅 mult）→ 所选牌逐张 chips（合并成一条 trace）→ Joker 从左到右 → 末尾一次 floor | **中** | 顺序按真游戏实测确认；先对齐"基础→逐张→Joker→floor" |
 | 11 | 牌型集合 | 9 常规 + 3 隐藏（Five of a Kind / Flush House / Flush Five）+ Royal Flush 显示特例 | 仅 9 常规；无隐藏牌型（标准 52 张牌组本身也打不出） | 低（子集内可排除） | `RULES_VERSION.excluded` 明列 |
 | 12 | 牌型判定边界 | 四条约 4 张同点；两对/葫芦要求不同点数；A 可高可低；同花/顺子需 5 张 | 优先级 `同花顺→四条→葫芦→同花→顺子→三条→两对→对子→高牌`；A 高/低均支持；同花/顺子/葫芦限 5 张 | ✅ 基本同 | 补"四条含 kicker"与"两对 4 张"金样 |
-| 13 | Joker 目录 | 约 150 个具名 Joker，稀有度 Common/Uncommon/Rare/Legendary | 8 个合成夹具（`jc_*`/`jm_*`/`jx_*`），**不是原版 Joker** | **高** | W3 实现 8 个 vanilla Joker（见 [joker-semantics.md](../joker-semantics.md) §2） |
+| 13 | Joker 目录 | 约 150 个具名 Joker，稀有度 Common/Uncommon/Rare/Legendary | **2026-11-15 快照**：8 个合成夹具（`jc_*`/`jm_*`/`jx_*`）；2026-11-17 已换为 8 个具名 Joker | **高** | 已实现 8 个 vanilla Joker（见 [joker-semantics.md](../quality/joker-semantics.md) §2） |
 | 14 | Joker 触发条件 | 多数 Joker 带条件（含对子/含三条/出牌张数等）；含"是否含对子"的包含关系 | 夹具全部**无条件**生效；`Joker` 模型无 `condition` 字段 | **高** | 新增 `condition` 字段与包含关系判定 |
 | 15 | Joker 顺序 | 从左到右；Blueprint/Brainstorm 复制、重触发等复杂语义 | 严格槽位顺序；无复制/重触发 | 中 | 保留槽位顺序；复杂语义进 `excluded` |
 | 16 | 消耗品 | Tarot 22 / Planet 12 / Spectral 18；2 个消耗品槽 | 无 | **高** | `excluded`（Ante 1 子集不实现） |
@@ -59,14 +59,14 @@
 
 再叠加两个 Joker（vanilla 事实：`Joker` +4 Mult、`The Duo` ×2 Mult；顺序敏感）：
 
-| 槽位顺序 | vanilla（Pair L1，7♥7♦） | `bench/` 合成夹具等价演示 |
+| 槽位顺序 | vanilla（Pair L1，7♥7♦） | **2026-11-15 快照**：合成夹具等价演示（当前实现为 8 个具名 Joker） |
 |---|---|---|
 | `+4 Mult` → `×2 Mult` | (24) × (2+4) × 2 = 288 | floor(14 × 6 × 2) = 168 |
 | `×2 Mult` → `+4 Mult` | (24) × (2×2+4) = 192 | floor(14 × (2×2+4)) = 112 |
 
-> 结论：**"顺序敏感"这一结构两边都有，但数值不可比**。因此 `docs/engine-fidelity.md` 的 A2 只能逐局面比对 `engine_score == real_score`，不能靠手算或 Wiki 断言。
+> 结论：**"顺序敏感"这一结构两边都有，但数值不可比**。因此 `docs/quality/engine-fidelity.md` 的 A2 只能逐局面比对 `engine_score == real_score`，不能靠手算或 Wiki 断言。
 
-### 2.1 计分口径必要条件（W3 实现清单）
+### 2.1 计分口径必要条件（实现清单，已落地）
 
 1. `chips` 起点 = 牌型基础 Chips（等级 1）；
 2. `mult` 起点 = 牌型基础 Mult（等级 1）；
@@ -97,7 +97,7 @@
 
 ## 4. 流程 / 资源差异（状态机层）
 
-### 4.1 当前 `bench/` 状态机（事实）
+### 4.1 2026-11-15 快照时的 `bench/` 状态机（非当前）
 
 - 常量：`TARGETS=(300,800,2000)`、`HANDS_PER_BLIND=4`、`DISCARDS_PER_BLIND=2`、`INITIAL_HAND_SIZE=8`、Joker 槽位 3。
 - 阶段：`play` →（达标）`shop` →（选 Joker 换盲注）`play` → … → `done`（`win`/`loss`）。
@@ -117,7 +117,7 @@
 | 商店 | 每个盲注后：2 随机卡（Joker 权重 20 / Tarot 4 / Planet 4）+ 2 补充包 + 1 Voucher；reroll 从 $5 起、每次 +$1 | [The Shop](https://balatrowiki.org/w/The_Shop) |
 | 现金结算 | 盲注奖励 $3/$4/$5 + 每剩余手牌 $1 + 利息 $1/$5 上限 $5 | [Money](https://balatrowiki.org/w/Money) |
 
-> ⚠️ 关键语义修正：当前 `TARGETS=(300,800,2000)` 容易被误读为"三个盲注"，实际是 **Ante 1/2/3 的基础分**。W3 只做 Ante 1 时，三盲注应为 **300/450/600**，不是 300/800/2000。这个改法同时影响 `blind_idx` 的含义与所有依赖 target 的测试期望。
+> ⚠️ 关键语义修正（针对 2026-11-15 快照）：快照时 `TARGETS=(300,800,2000)` 容易被误读为"三个盲注"，实际是 **Ante 1/2/3 的基础分**。2026-11-17 起子集 v1 已改为 **300/450/600**；本句保留作历史说明。
 
 ---
 
@@ -125,12 +125,13 @@
 
 | 内容 | vanilla 规模 | 现状 | W3 处理 |
 |---|---|---:|---|
-| Joker | 约 150（含 Legendary） | 8 合成夹具 | 只实现 8 个具名 Joker；其余 `excluded` |
+| Joker | 约 150（含 Legendary） | **快照**：8 合成夹具（现为 8 个具名 Joker） | 只实现 8 个具名 Joker；其余 `excluded` |
 | Tarot / Planet / Spectral | 22 / 12 / 18 | 无 | `excluded` |
 | Voucher | 32 | 无 | `excluded` |
 | Booster packs | 6 类 × 3 尺寸 | 无 | `excluded` |
 | 卡牌增强 / 封蜡 / 版本 | 8 / 4 / 4（+Base） | 无 | `excluded` |
 | 牌组 / 赌注 | 15 / 8 | 无 | 固定 Red Deck / White Stake |
+| 金钱 / 利息 / 商店 | 起始 $4；奖励 $3/$4/$5；每手/每弃牌 $1；利息 cap $5；2 卡位商店 + reroll | **已实现（v2）**：整数账本 + 固定价 2 报价商店（价格/权重/利息顺序未实测） | 保持子集；不要扩成浮动价/权重表 |
 | Boss 效果 | 23 常规 + 5 Showdown | 无 | `excluded`（Ante 1 仍会出现 Boss，但 W3 只保留目标分，不实现效果） |
 | Tag / 跳过盲注 | 全部 | 无 | `excluded` |
 | Endless / 挑战牌组 | 有（Endless 底注 9 起；挑战 20 个）；Daily Run **未证实** ⏳ | 无 | `excluded` |
@@ -151,9 +152,9 @@
 
 ---
 
-## 7. W3 目标值清单（实现/验收可直接引用）
+## 7. 目标值清单（已于 2026-11-17 在 `bench/` 实现；仍未对齐验证）
 
-> 来源：`plan/01-每周任务.md` W3 任务 3–4 + 本文 §2/§4；数值来源见 [rules.md](rules.md) §5/§9。
+> 来源：`plan/01-任务进度.md` W3 任务 3–4 + 本文 §2/§4；数值来源见 [rules.md](rules.md) §5/§9。
 
 ### 7.1 计分（`bench/scoring.py`）
 
@@ -175,11 +176,12 @@
 
 - [ ] 8 个 vanilla Joker：`Joker` +4 Mult、`Jolly` +8 Mult（含对子）、`Zany` +12 Mult（含三条）、`Sly` +50 Chips（含对子）、`Wily` +100 Chips（含三条）、`Half` +20 Mult（≤3 张）、`The Duo` ×2 Mult（含对子）、`The Trio` ×3 Mult（含三条）；
 - [ ] 新增 `condition` 字段；条件不满足时不触发；
-- [ ] 合成夹具改名 `synthetic_*` 或移入 `tests/fixtures/`，与 vanilla 目录分命名空间。
+- [x] 合成夹具已移出生产目录（2026-11-17，`bench/jokers.py` 改为 8 个具名 Joker），与 vanilla 目录共用同一命名空间
 
 ### 7.4 显式排除（写入 `scenarios/RULES_VERSION.excluded`）
 
-- Boss 效果、金钱/商店/利息、消耗品、Voucher、补充包、卡牌增强/封蜡/版本、多牌组、赌注、Tag/跳盲、Endless、隐藏牌型、Royal Flush 显示、Blueprint/重触发类 Joker。
+- Boss 效果、消耗品、Voucher、补充包、卡牌增强/封蜡/版本、多牌组、赌注、Tag/跳盲、Endless、隐藏牌型、Royal Flush 显示、Blueprint/重触发类 Joker。
+- **金钱/利息/商店已不在排除项**（v2 已实现）：见 `bench/rules_version.py` 的 economy 段与 `tests/test_economy.py`。但“价格=稀有度中值、候选均匀抽样、利息按入账前金额”属于 `unverified`，不是已对齐事实。
 
 ---
 
@@ -189,7 +191,7 @@
 |---|---|---|
 | L0 自洽不回归 | `python -m unittest discover -s tests -v`（25 项） | 改造后测试期望值会变，必须同步更新并说明原因 |
 | 计分金样 | 新增 `tests/` 金样用例 | 不能替代 A2；只证明"按本文档的目标值实现" |
-| A2 单步分数 | `docs/engine-fidelity.md` A 表 + `evidence/W3/align/` | 真游戏捕获逐局面 `engine_score == real_score` |
+| A2 单步分数 | `docs/quality/engine-fidelity.md` A 表 + `evidence/W3/align/` | 真游戏捕获逐局面 `engine_score == real_score` |
 | A1 状态映射 | `bench/convert.py` 逐字段 diff 报告 | `gamestate` ↔ `GameState` |
 | A3 规则子集 | `RULES_VERSION` 的 `verified_against` / `excluded` | 只在签核后改 `fidelity_status` |
 | A4 场景来源 | `scenarios/v3/*.jsonl` 的 `origin` + `capture_id` | 不通过者进 `rejected` 并写原因 |

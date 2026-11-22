@@ -18,15 +18,15 @@ flowchart TD
     end
     subgraph Env["bench/ 规则与环境层（唯一规则实现）"]
         TOOLS["tools<br/>GameSession / dispatch"] --> ENV["environment<br/>Environment"]
-        ENV --> ENG["engine<br/>play / discard / choose_joker"]
+        ENV --> ENG["engine<br/>play / discard / choose_joker<br/>sell_joker / reroll_shop"]
         ENG --> EVAL["hand_eval"]
         ENG --> SCORE["scoring"]
         ENG --> JOK["jokers"]
-        ENG --> SER["serialize<br/>snapshot / state_hash"]
-        ENV --> OBS["observation"]
-        ENV --> ACT["actions"]
-        ENGINE_CONST["rules_version<br/>Ruleset / blinds"] --> ENG
-        MODEL["model<br/>Card / Joker / GameState"] --> ENG
+        ENG --> SER["serialize<br/>snapshot v2 / state_hash"]
+        ENV --> OBS["observation<br/>schema 2（含 economy/shop）"]
+        ENV --> ACT["actions<br/>play/discard + 商店动作"]
+        ENGINE_CONST["rules_version<br/>Ruleset / blinds / 价格表"] --> ENG
+        MODEL["model<br/>Card / Joker / GameState(+money)"] --> ENG
     end
     subgraph Scen["scenarios/ 场景层"]
         SCH["schema"] --> VAL["validator"]
@@ -52,14 +52,14 @@ flowchart TD
 | 模块 | 职责 | 不做什么 |
 |---|---|---|
 | `bench/errors.py` | 统一错误码（11 个）与异常类型 | 不做 IO |
-| `bench/rules_version.py` | 规则声明（唯一机器可读来源）、Ante 1 盲注、牌型基础分表、`ruleset_for` 扩展解析 | 不读文件 |
-| `bench/model.py` | `Card`/`Joker`/`GameState` 值对象与校验、`state_summary` | 不推进状态 |
+| `bench/rules_version.py` | 规则声明（唯一机器可读来源）、Ante 1 盲注、牌型基础分表、**经济常量与 Joker 价格表**、`ruleset_for` 扩展解析（v2 起拒绝一切扩展） | 不读文件 |
+| `bench/model.py` | `Card`/`Joker`/`GameState` 值对象与校验、`state_summary`；`GameState` 含 `money` / `reroll_cost` / `last_payout` | 不推进状态 |
 | `bench/cards.py` | 52 张标准牌、稳定 ID 查找、剩余牌堆 | 不含随机性 |
 | `bench/hand_eval.py` | 牌型识别、基础分、计分牌筛选、contains | 不应用 Joker |
 | `bench/jokers.py` | 8 个具名 Joker 目录 + 条件判定 | 不含数值以外的规则 |
 | `bench/scoring.py` | 等级 1 计分流水线 + trace | 不改状态 |
-| `bench/actions.py` | `Action` 值对象、合法动作枚举（218+218） | 不校验状态阶段（engine 做） |
-| `bench/engine.py` | 状态初始化与转移（play/discard/choose_joker） | 不写文件、不读全局 |
+| `bench/actions.py` | `Action` 值对象、合法动作枚举（218+218；商店阶段买/卖/reroll/离开） | 不校验状态阶段（engine 做） |
+| `bench/engine.py` | 状态初始化与转移（play/discard/choose_joker/sell_joker/reroll_shop）、**盲注结算与商店开张** | 不写文件、不读全局 |
 | `bench/serialize.py` | 完整快照/还原/稳定 hash | 不缓存 |
 | `bench/observation.py` | Agent 可见 observation + 紧凑文本 | 不暴露牌堆顺序/oracle |
 | `bench/environment.py` | reset/observe/legal_actions/step/snapshot/restore/terminated/truncated | 不写 trace |
@@ -96,12 +96,16 @@ MCP tools/call play_cards {"card_ids":["c7h","c7d"]}
                 → 按槽位顺序应用 8 类 Joker（条件不满足只记 trace）
                 → floor(chips×mult)        # 仅末尾一次
             → 扣手数、补牌、打出的牌进弃牌堆
-            → _after_play                  # 达标→过关/胜利；手数耗尽→失败
+            → _after_play                  # 达标 → 结算金钱 → 商店 / 下一盲注 / win；手数耗尽 → loss
             → _check_state                 # 52 张守恒等不变量
-        → Environment 组装 StepResult（observation/reward/terminated/truncated/info）
+        → Environment 组装 StepResult（observation/reward/terminated/truncated/info+money）
       → tools 包装为 {ok, observation, text, reward, terminated, truncated, info}
   → MCP 返回 JSON 字符串
 ```
+
+商店动作链路：`bridge.server.choose_joker/sell_joker/reroll_shop` → `bench.tools` → `Environment.step`
+→ `engine.apply_action` → `choose_joker`（买/离开）/ `sell_joker` / `reroll_shop`。
+买入后阶段仍是 `shop`；只有 `choose_joker:leave` 才触发 `_start_blind`（money 跨盲注保留）。
 
 评测链路：
 
@@ -126,11 +130,11 @@ stateDiagram-v2
     [*] --> Play: reset()
     Play --> Play: play（未达标且手数>0）
     Play --> Play: discard
-    Play --> Shop: 达标且 blind_idx<2 且 shop_enabled
-    Play --> Play: 达标且 shop_enabled=False（自动进入下一盲注）
-    Play --> Win: 达标且 blind_idx==2
+    Play --> Shop: 达标且 blind_idx<2（先结算金钱）
+    Play --> Win: 达标且 blind_idx==2（先结算，不进商店）
     Play --> Loss: 未达标且 hands_left==0
-    Shop --> Play: choose_joker（下一盲注）
+    Shop --> Shop: choose_joker(买) / sell_joker / reroll_shop
+    Shop --> Play: choose_joker(leave) → 下一盲注（money 保留）
     Win --> [*]
     Loss --> [*]
     Play --> Truncated: step_count==max_steps
@@ -141,6 +145,7 @@ stateDiagram-v2
 - **truncated**：`max_steps` 截断（决策点场景在完成 1 次决策后按 `completed` 计入场景完成，见 episode_runner）；
 - **timeout**：墙钟超时（由 runner 的 `asyncio.timeout` 产生，trace 记 `status=timeout`）；
 - **agent_error / invalid_action_limit / env_error**：失败隔离状态，不算成功。
+- **经济决策点**（`decision_type="shop"`，`initial_state.shop_open=true`）：reset 后直接 `phase=shop`，horizon 通常是 1–2 步（买/卖/reroll 后离开）。
 
 ## 5. 并发模型（三层）
 
@@ -168,7 +173,9 @@ stateDiagram-v2
 | 取舍 | 选择 | 原因 |
 |---|---|---|
 | 规则层是否写日志 | 不写（纯函数） | 规则可单测、可复用；trace 归评测层 |
-| 商店是否默认开启 | 默认关闭；`free_joker_choice` 显式扩展 | 金钱被排除；免费选 Joker 不是 vanilla，不能悄悄进训练集 |
+| 商店是否默认开启 | **v2：默认开启**（Small/Big 之后，花真钱） | 经济是规则的一部分；旧免费三选一扩展已退役 |
+| 经济结算放哪 | 引擎 `_blind_payout`，明细写进 `state.last_payout` | 规则只有一份实现；observation/trace 直接对账，不重算 |
+| 价格怎么定 | 按稀有度取固定中值（Common $5 / Rare $9） | 可判定、可复现；浮动价与权重表未实测，不假装 |
 | Boss 效果 | **不实现**，场景必须声明 `effect=null` | 避免“静默忽略未实现规则”；Ante 1 Boss 仍按 600 分建模 |
 | 弃牌价值 | O2 近似 EV，不冒充精确 | 抽样模型与真实发牌不一致；报告必须带 K |
 | 局部 regret | 只在 play 决策上定义；discard 单列 `action_type_mismatch` | 避免旧实现“正确弃牌被记最大 regret” |

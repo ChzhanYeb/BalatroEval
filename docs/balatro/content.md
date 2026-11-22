@@ -2,7 +2,7 @@
 
 > **适用范围：vanilla Balatro 1.0.1o；Wiki 抓取日期 2026-11-15；若 Wiki 已含后续版本内容，冲突处标 ⏳。**
 >
-> 本文件只做一件事：把 vanilla 1.0.1o 的**可收集内容与随机内容**整理成可查台账，供 W3 选卡与后续规则子集实现对照。**它不描述本仓库 `bench/` 的任何实现状态，也不构成"已对齐/已验证"的证据**；`bench/` 当前对齐等级为 **L0**，见 [README](../../README.md) 与 [engine-fidelity](../engine-fidelity.md)。
+> 本文件只做一件事：把 vanilla 1.0.1o 的**可收集内容与随机内容**整理成可查台账，供 W3 选卡与后续规则子集实现对照。**它不描述本仓库 `bench/` 的任何实现状态，也不构成"已对齐/已验证"的证据**；`bench/` 当前对齐等级为 **L0**，见 [README](../../README.md) 与 [engine-fidelity](../quality/engine-fidelity.md)。
 >
 > **证据等级约定**
 >
@@ -12,7 +12,7 @@
 > | △ | 数值来自已抓取页面中的**汇总表或版本历史表**（而非当前版本逐条表），或由已抓取事实做简单计数得到 |
 > | ⏳ | 仅检索到存在性、本次未取得可引用来源；**不猜数值** |
 >
-> **许可与合规（`docs/data-sources.md` §5，L7–L9）**：balatrowiki.org 内容为 CC BY-NC-SA 3.0。本文件**只提取不可版权的事实**（名称、稀有度、数值、条件、价格、编号），**所有描述均为自行改写**，不逐句搬运 Wiki 文本、不复制其表格排版、不贴任何图片；游戏素材不入库。引用外部事实若与后续实测冲突，**以真游戏捕获（A2/A4）为准**（📋 未执行）。
+> **许可与合规（`docs/quality/data-sources.md` §5，L7–L9）**：balatrowiki.org 内容为 CC BY-NC-SA 3.0。本文件**只提取不可版权的事实**（名称、稀有度、数值、条件、价格、编号），**所有描述均为自行改写**，不逐句搬运 Wiki 文本、不复制其表格排版、不贴任何图片；游戏素材不入库。引用外部事实若与后续实测冲突，**以真游戏捕获（A2/A4）为准**（📋 未执行）。
 
 ## 0. 目录结构
 
@@ -49,7 +49,7 @@
 | `The Soul` 在 Spectral/Arcana 包中的出现率 | **3/1000 = 0.3%** | ✅ `/w/The_Soul`、`/w/Canio` |
 | 平均购买价（Wiki 统计） | 全体 $6.14；剔除 Legendary 约 $5.66 | ✅ `/w/Jokers`（Wiki 自述统计，仅作参照） |
 
-> 注：Wiki 把 Joker 分为 7 个功能类（Chips / Additive Mult / Multiplicative Mult / Chips and Additive Mult / Effect / Retrigger / Economy），下表的"分类"列即采用该分类，便于按效果类型选卡。**分类是 Wiki 的功能归类，不是计分阶段的语义**（触发顺序必须真游戏实测，见 [joker-semantics](../joker-semantics.md) §3.3）。
+> 注：Wiki 把 Joker 分为 7 个功能类（Chips / Additive Mult / Multiplicative Mult / Chips and Additive Mult / Effect / Retrigger / Economy），下表的"分类"列即采用该分类，便于按效果类型选卡。**分类是 Wiki 的功能归类，不是计分阶段的语义**（触发顺序必须真游戏实测，见 [joker-semantics](../quality/joker-semantics.md) §3.3）。
 
 ### 1.2 价格与出售价规则
 
@@ -262,11 +262,11 @@
 | 1.3.6 Economy | 18 | — |
 | **合计** | **150** | 与 Wiki 声明的 150 一致 ✅ |
 
-### 1.5 与 W3 的 8 个 vanilla Joker 对应关系
+### 1.5 与已实现的 8 个 vanilla Joker 对应关系
 
-> 只陈述事实（名称/稀有度/价格/编号/效果条件），**不评价实现难度、不声称已实现**。触发顺序与"含对子"的边界仍需真游戏实测（`docs/joker-semantics.md` §3.3，📋）。
+> 只陈述事实（名称/稀有度/价格/编号/效果条件）。这 8 个 Joker 已按本表数值实现（2026-11-17，`bench/jokers.py`），但触发顺序与"含对子"的边界仍需真游戏实测（`docs/quality/joker-semantics.md` §3.3，📋）。
 
-| W3 目标 | 完整目录位置 | 稀有度 | 价格 | 编号 | 效果与条件（vanilla 事实） |
+| Joker（已实现） | 完整目录位置 | 稀有度 | 价格 | 编号 | 效果与条件（vanilla 事实） |
 |---|---|---|---:|---:|---|
 | `Joker` | §1.3.2 | Common | $2 | 1 | +4 Mult，无条件 |
 | `Jolly Joker` | §1.3.2 | Common | $3 | 6 | +8 Mult，若所出牌**含对子**（含三条/葫芦/四条等超集） |
@@ -318,7 +318,7 @@
 
 ### 2.2 Planet 卡（12 张）
 
-统一价格：**购买 $3 / 出售 $1** ✅。每张提升对应牌型 1 级；"等级 1 基础值"列即升级起点（同 [data-sources](../data-sources.md) §1 的 vanilla 目标值）。
+统一价格：**购买 $3 / 出售 $1** ✅。每张提升对应牌型 1 级；"等级 1 基础值"列即升级起点（同 [data-sources](../quality/data-sources.md) §1 的 vanilla 目标值）。
 
 | # | 名称 | 对应牌型 | 每级增益 | 等级 1 基础值 | 解锁 |
 |---:|---|---|---|---|---|
@@ -656,7 +656,7 @@
 | 重掷降价 | `Reroll Surplus` 起步 $3；`Reroll Glut` 起步 $1；`Chaos the Clown` 首次免费；`D6 Tag` 下次商店起步 $0 | ✅ `/w/The_Shop`、各 Voucher 页 |
 | 花色/点数相关卡的当场目标 | `Mail-In Rebate`、`Castle`、`The Idol`、`Ancient Joker` 的目标**按牌组构成加权随机**，每回合更换 | ✅ 各 Joker 页 |
 | 补充包内容 | 每局按 seed 有**固定顺序**；同种补充包开包顺序不影响结果 | ✅ `/w/Booster_Packs` |
-| 其它 seed 事实 | 种子决定全部随机要素（Wiki Seed 条目，引用 1.0.1o 源码）；本仓库仅在 `docs/data-sources.md` §1 记录为 **✅ 已用于开题报告**，**不声称复刻 RNG** | △ 二手引用（见 [data-sources](../data-sources.md)） |
+| 其它 seed 事实 | 种子决定全部随机要素（Wiki Seed 条目，引用 1.0.1o 源码）；本仓库仅在 `docs/quality/data-sources.md` §1 记录为 **✅ 已用于开题报告**，**不声称复刻 RNG** | △ 二手引用（见 [data-sources](../quality/data-sources.md)） |
 
 ### 10.3 改造出现率
 
@@ -765,7 +765,7 @@
 
 - 本文件的事实**只用于 W3 对齐的参考基线**，**不构成对齐证据**；`bench/` 当前为 **L0（未对齐）**，A0–A4 与 12 局终验均未执行（📋）。
 - 所有数值若与真游戏冲突，**以真游戏捕获（A2/A4）为准**；冲突记 `E1 env_divergence`（数据质量门禁，非 Agent 失败）。
-- 引用本文件时请同时引用 `docs/data-sources.md` §5 的许可边界（CC BY-NC-SA 只取事实、描述自写、不贴图）。
+- 引用本文件时请同时引用 `docs/quality/data-sources.md` §5 的许可边界（CC BY-NC-SA 只取事实、描述自写、不贴图）。
 
 
 

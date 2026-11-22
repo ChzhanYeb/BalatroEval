@@ -1,22 +1,27 @@
-# 规则实现：vanilla 1.0.1o 严格子集 v1
+# 规则实现：vanilla 1.0.1o 严格子集 v2（计分 + 经济）
 
-> 规则权威：`bench/rules_version.py::VANILLA_SUBSET_V1`（机器可读）+ `scenarios/RULES_VERSION`（人类可读）+ `scenarios/rules_v1.json`（JSON 镜像，测试断言一致）。
+> 规则权威：`bench/rules_version.py::VANILLA_SUBSET_V1`（机器可读）+ `scenarios/RULES_VERSION`（人类可读）+ `scenarios/rules_v2.json`（JSON 镜像，测试断言一致）。
 > **状态**：IMPLEMENTED + TESTED（单测）；**VERIFIED = 否**（A2/A3 真游戏实测 0 行，`fidelity_status=NOT_VERIFIED`）。
+> **v1 → v2**：v1 只有计分与流程；v2 增加金钱/利息/商店经济（本文件 §2.3 / §5.1）。规则的**未实现边界没有变**，变的是“经济从排除项变成已实现项”。
 
 ## 1. 规则版本与配置
 
 | 项 | 值 | 来源/说明 |
 |---|---|---|
-| rules_version | `vanilla_1.0.1o_subset_v1` | 本实现 |
+| rules_version | `vanilla_1.0.1o_subset_v2` | 本实现 |
 | 目标游戏版本 | `1.0.1o` | plan/00、docs/balatro |
-| 牌组 / 赌注 | Red Deck / White Stake | W3 目标配置 |
+| 牌组 / 赌注 | Red Deck / White Stake | 已实现（2026-11-17）；未与真游戏对齐验证 |
 | Ante | 1（`max_ante=1`） | 只覆盖 Ante 1 |
 | 盲注目标 | Small **300** / Big **450** / Boss **600** | 基础 300 × 1 / 1.5 / 2 |
 | 手 / 弃 | **4 / 4** | 基础 4/3；Red Deck +1 弃 |
 | 手牌上限 | 8 | vanilla 基础值 |
 | Joker 槽位 | 5 | vanilla 基础值 |
 | 单次出牌/弃牌 | 1–5 张 | — |
-| 商店 | 默认关闭 | `shop_enabled=False`；`free_joker_choice` 为显式扩展 |
+| 起始金钱 | **$4** | Red Deck 起始；`starting_money` |
+| 通关奖励 | Small **$3** / Big **$4** / Boss **$5** | `BlindSpec.reward_money` |
+| 剩余手数 / 未用弃牌 | 每 1 手 **+$1** / 每 1 弃牌 **+$1** | `hand_bonus` / `discard_bonus` |
+| 利息 | `min(money // 5, 5)` | 用**入账前**金额（顺序 `unverified`） |
+| 商店 | **启用**（Small/Big 之后） | 2 个报价、按稀有度固定价、买/卖/reroll/离开 |
 | Boss 效果 | 未实现 | 仍按 600 分目标；场景请求效果会被拒绝 |
 
 **旧 L0 的 `TARGETS=(300,800,2000)` 已删除**：那是 Ante 1/2/3 的基础分，不是同一 Ante 的三盲注。
@@ -24,12 +29,13 @@
 ## 2. 一局流程（engine）
 
 ```text
-new_game(seed) → Small Blind（target 300，4 手/4 弃，8 张手牌）
+new_game(seed) → Small Blind（target 300，4 手/4 弃，8 张手牌，起始 $4）
   play/discard ... 达标
-    ├─ 非最后盲注 且 shop_enabled=False → 自动 _start_blind(下一盲注)
-    ├─ 非最后盲注 且 shop_enabled=True  → phase=shop（3 选 1 或跳过）
-    └─ 最后盲注（Boss）达标 → done + win
-  未达标且 hands_left==0 → done + loss
+    ├─ 结算金钱（奖励 + 剩余手数 + 未用弃牌 + 利息）
+    ├─ 非最后盲注 → phase=shop（2 报价；买/卖/reroll/离开）
+    │     └─ 离开（choose_joker:leave）→ _start_blind(下一盲注)（money 保留）
+    └─ 最后盲注（Boss）达标 → done + win（结算但不进商店）
+  未达标且 hands_left==0 → done + loss（不结算）
 ```
 
 ### 2.1 转移规则
@@ -38,7 +44,10 @@ new_game(seed) → Small Blind（target 300，4 手/4 弃，8 张手牌）
 |---|---|---|
 | `play` | 1–5 张；消耗 1 手；计分后补牌到 8；打出的牌入弃牌堆；再判达标/失败 | `engine.play` |
 | `discard` | 1–5 张；消耗 1 弃；补牌到 8；弃牌入弃牌堆；不判阶段 | `engine.discard` |
-| `choose_joker` | 仅 `shop_enabled`；index 或 None（跳过）；随后进入下一盲注 | `engine.choose_joker` |
+| `choose_joker(i)` | 仅 shop；花钱买第 i 个报价；要求有空格位且钱够；买走后该报价消失；**仍停在 shop** | `engine.choose_joker` |
+| `choose_joker(None)` | 仅 shop；离开商店 → 下一盲注 | `engine.choose_joker` |
+| `sell_joker(i)` | 仅 shop；卖出第 i 个已拥有 Joker，返还 `max(1, price//2)`，腾出槽位 | `engine.sell_joker` |
+| `reroll_shop` | 仅 shop；扣 `reroll_cost`，`reroll_cost += 1`，重抽报价 | `engine.reroll_shop` |
 | 补牌 | 先抽 `deck`；空则把 `discard_pile` 洗回（消耗 RNG 并写回 `rng_state`）；两堆皆空则少抽 | `engine._draw` |
 | 补牌时机 | 先移除打出的牌 → 补牌 → 打出的牌进弃牌堆 | 同一次转移内不会抽回刚打出的牌 |
 
@@ -47,11 +56,37 @@ new_game(seed) → Small Blind（target 300，4 手/4 弃，8 张手牌）
 进入下一盲注时：
 1. 上一盲注剩余手牌 → 弃牌堆；
 2. `blind_idx/kind/target/boss_effect` 切换到该盲注；
-3. `total_score=0`；`hands_left=4`；`discards_left=4`；清空 `shop_options`；
-4. 补满 8 张手牌（必要时洗回弃牌堆）；
-5. `phase='play'`，`outcome=None`。
+3. `total_score=0`；`hands_left=4`；`discards_left=4`；清空 `shop_options`；`last_payout=None`；
+4. **`money` 保持不变**（这是跨盲注唯一的累积资源）；`reroll_cost` 重置为基准价；
+5. 补满 8 张手牌（必要时洗回弃牌堆）；
+6. `phase='play'`，`outcome=None`。
 
 > **未验证**：vanilla 跨盲注手牌/牌堆的精确处理（是否重洗、剩余手牌去哪）未做真游戏实测，标 `unverified: cross_blind_hand_redraw_policy`。
+
+### 2.3 经济结算与商店（v2）
+
+```text
+关闭盲注时（_blind_payout）：
+  blind_reward  = Small 3 / Big 4 / Boss 5
+  hand_bonus    = hands_left    × $1
+  discard_bonus = discards_left × $1
+  interest      = min(money_before // 5, 5)     # 用入账前的钱
+  money        += blind_reward + hand_bonus + discard_bonus + interest
+  明细写入 state.last_payout（observation/trace 可见）
+
+商店（open_shop）：
+  phase = "shop"；reroll_cost = 5；抽 2 个未拥有的 Joker（rng.sample 均匀）
+  买入：money -= joker_price(offer)（Common 5 / Uncommon 7 / Rare 9）
+  卖出：money += max(1, price // 2)
+  reroll：money -= reroll_cost；reroll_cost += 1；重抽 2 个
+  离开：进入下一盲注
+```
+
+**三条未验证口径**（引用时必须保留）：
+1. 利息用**入账前**金额计算（原版结算顺序未实测）；
+2. 价格是稀有度区间的**中值**，不是原版浮动价；
+3. 商店候选是**均匀抽样**，不是原版权重表（70/25/5）；卖掉的 Joker 可能再次出现。
+
 
 ## 3. 计分流水线（`bench/scoring.py`）
 
@@ -137,30 +172,33 @@ new_game(seed) → Small Blind（target 300，4 手/4 弃，8 张手牌）
 | 5 Joker 槽 | 基础 5 | 同 | ✅ |
 | 8 手牌 | 基础 8 | 同 | ✅ |
 | Boss 效果 | 23 常规 + 5 Showdown 各有机制 | **全部未实现**（仅目标分） | ❌ 排除；场景校验拒绝 |
-| 金钱/利息/商店 | 有 | 无（shop 仅显式扩展） | ❌ 排除 |
+| 金钱/利息/商店 | 有：起始 $4、奖励 $3/$4/$5、每手/每弃牌 $1、利息 cap $5、2 卡位商店 | **已实现（v2）**：整数账本 + 固定价 2 报价商店 | ✅ 实现；价格/权重/顺序未实测 |
+| reroll / 卖出 | 有：reroll $5 起每 reroll +$1；卖出半价 | **已实现（v2）** | ✅ 实现；reroll 价未实测 |
 | 手牌等级 >1 | Planet 升级 | 无（固定等级 1） | ❌ 排除 |
 | 牌型筛选例外 | Splash/Four Fingers/Shortcut 等 | 无 | ❌ 排除 |
 | 卡牌增强/蜡封/版本 | 有 | 无 | ❌ 排除 |
 | 多牌组/多赌注 | 15/8 | 固定 Red/White | ❌ 排除 |
 
-## 6. 显式排除（`Ruleset.excluded`）
+## 6. 显式排除（`Ruleset.excluded`，v2 共 18 项）
 
-`money`、`interest`、`shop_economy`、`boss_effects`、`consumables_tarot_planet_spectral`、`vouchers`、`booster_packs`、`card_enhancements`、`card_seals`、`card_editions`、`multi_deck`、`multi_stake`、`tags_and_blind_skip`、`endless_mode`、`hand_levels_gt1`、`retriggers`、`blueprint_brainstorm`、`joker_editions`、`negative_joker_slots`、`held_in_hand_card_effects`、`stone_gold_glass_steel_lucky_cards`。
+`boss_effects`、`consumables_tarot_planet_spectral`、`vouchers`、`booster_packs`、`card_enhancements`、`card_seals`、`card_editions`、`multi_deck`、`multi_stake`、`tags_and_blind_skip`、`endless_mode`、`hand_levels_gt1`、`retriggers`、`blueprint_brainstorm`、`joker_editions`、`negative_joker_slots`、`held_in_hand_card_effects`、`stone_gold_glass_steel_lucky_cards`。
+
+> **v2 变更**：`money` / `interest` / `shop_economy` 已从 `excluded` **移出**（现在是 `implemented` 项）。谁再写“金钱被排除”就是过期说法。
 
 **不允许静默忽略**：
 - 场景若请求 Boss 效果 → `UnsupportedRuleError`；
-- 场景若声明未知扩展 → `UnsupportedRuleError`；
-- 工具调用 `choose_joker` 而商店未启用 → `NOT_ALLOWED`；
+- 场景若声明任何扩展（含已退役的 `free_joker_choice`）→ `UnsupportedRuleError`；
+- 商店外买卖、或钱不够/槽位满 → `INVALID_STATE` / `NO_RESOURCE`；
 - 任何未实现机制不得出现在训练集中（由 validator/文档双重约束）。
 
 ## 7. 对齐边界与证据
 
-- **已实现的数值**（牌型基础分、Ante 1 目标、4/4、5 槽、8 张、8 Joker 数值）可在 `docs/balatro/rules.md`/`content.md` 找到来源；来源许可为 CC BY-NC-SA，本项目只取事实数值、描述自写。
-- **未验证**：单步分数与真游戏一致（A2）、合法动作集一致（A1/A3）、跨盲注行为、取整、contains 4K/5K 边界、Boss 效果缺失。均列在 `Ruleset.unverified` 与 `docs/implementation/testing-and-validation.md`。
-- 修改 `verification_status` 的唯一合法路径：`docs/engine-fidelity.md` A/B 表实测 + 签核；本实现未触碰该状态。
+- **已实现的数值**（牌型基础分、Ante 1 目标、4/4、5 槽、8 张、8 Joker 数值、经济常量）可在 `docs/balatro/rules.md` / `content.md` 找到来源；来源许可为 CC BY-NC-SA，本项目只取事实数值、描述自写。
+- **未验证**：单步分数与真游戏一致（A2）、合法动作集一致（A1/A3）、跨盲注行为、取整、contains 4K/5K 边界、Boss 效果缺失；**以及 v2 经济的 5 条口径**（利息顺序、固定价、均匀抽样、商店 RNG、卖出后重现）。均列在 `Ruleset.unverified` 与 `docs/implementation/testing-and-validation.md`。
+- 修改 `verification_status` 的唯一合法路径：`docs/quality/engine-fidelity.md` A/B 表实测 + 签核；本实现未触碰该状态。
 
 ## 8. 参考
 
 - 规则事实：[docs/balatro/rules.md](../balatro/rules.md)、[content.md](../balatro/content.md)、[engine-gap.md](../balatro/engine-gap.md)
-- 代码：`bench/rules_version.py`、`bench/hand_eval.py`、`bench/scoring.py`、`bench/jokers.py`、`bench/engine.py`
-- 测试：`tests/test_w2_rules.py`、`tests/test_environment.py`、`tests/test_rules_declaration.py`
+- 代码：`bench/rules_version.py`、`bench/hand_eval.py`、`bench/scoring.py`、`bench/jokers.py`、`bench/engine.py`、`bench/actions.py`
+- 测试：`tests/test_w2_rules.py`、`tests/test_economy.py`、`tests/test_environment.py`、`tests/test_rules_declaration.py`

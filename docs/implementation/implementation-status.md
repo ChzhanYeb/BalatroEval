@@ -12,7 +12,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| 规则版本/声明（程序可读 + JSON 镜像 + 文档） | **TESTED** | `bench/rules_version.py`、`scenarios/rules_v1.json`、`tests/test_rules_declaration.py` |
+| 规则版本/声明（程序可读 + JSON 镜像 + 文档） | **TESTED** | `bench/rules_version.py`、`scenarios/rules_v2.json`、`tests/test_rules_declaration.py` |
 | Red Deck / White Stake / Ante 1 配置 | **TESTED** | `Ruleset`、`tests/test_environment.py`、`test_rules_declaration.py` |
 | 三盲注 300 / 450 / 600 | **TESTED** | 同上；旧 300/800/2000 已移除 |
 | 4 手 / 4 弃（Red +1） | **TESTED** | `new_game`、`test_environment` |
@@ -31,13 +31,15 @@
 | 完整快照/还原/state_hash | **TESTED** | `serialize.py`、`test_environment` |
 | Ante 1 Boss **仅按目标分**建模 | **IMPLEMENTED + TESTED（策略）** | `boss_effect=None`；场景校验拒绝效果 |
 | Boss 具名效果 | **NOT_IMPLEMENTED（排除）** | `Ruleset.excluded: boss_effects`；validator 拒绝 |
-| 金钱/利息/商店经济 | **NOT_IMPLEMENTED（排除）** | `excluded`；shop 默认关闭 |
-| 免费 3 选 1 Joker（benchmark 扩展） | **TESTED** | `ruleset_for([free_joker_choice])`、`test_environment.choose_joker` 相关、dev 场景 |
+| **金钱账本**（起始 $4、奖励 $3/$4/$5、每手/每弃牌 +$1、利息 cap $5） | **TESTED（v2）** | `engine._blind_payout`、`tests/test_economy.py` |
+| **商店**（Small/Big 后开放；2 报价；买/卖/reroll/离开） | **TESTED（v2）** | `engine.open_shop/choose_joker/sell_joker/reroll_shop`、`test_economy.py` |
+| **价格/reroll 价**（Common $5 / Rare $9；reroll $5 起 +$1） | **IMPLEMENTED + TESTED；口径 UNVERIFIED** | `joker_price` / `sell_value`；`Ruleset.unverified` |
+| 免费 3 选 1 Joker（旧 benchmark 扩展） | **RETIRED（v2 移除）** | 付费商店取代；声明该扩展会被 validator 拒绝 |
 | 消耗品/Voucher/补充包/增强/蜡封/版本 | **NOT_IMPLEMENTED（排除）** | `excluded` |
 | 多牌组/多赌注/Tag/跳盲/Endless | **NOT_IMPLEMENTED（排除）** | `excluded` |
 | 手牌等级 >1 / 重触发 / Blueprint | **NOT_IMPLEMENTED（排除）** | `excluded` |
 | 取整方式 / contains 4K-5K 边界 / 跨盲注 hand 处理 | **IMPLEMENTED（候选口径），UNVERIFIED** | `Ruleset.unverified` |
-| 与真游戏单步分数一致（A2） | **NOT_VERIFIED** | 0 行实测；`docs/engine-fidelity.md` PENDING |
+| 与真游戏单步分数一致（A2） | **NOT_VERIFIED** | 0 行实测；`docs/quality/engine-fidelity.md` PENDING |
 
 ## 2. 环境与工具
 
@@ -75,42 +77,47 @@
 
 | 项 | 状态 |
 |---|---|
-| 单元/集成/性质/并发/续跑测试（124） | **TESTED**：`python -m unittest discover -s tests` → Ran 124 / OK |
+| 单元/集成/性质/并发/续跑测试（157） | **TESTED**：`python -m unittest discover -s tests` → Ran 157 / OK |
 | Golden 数值（7h7d=48 等） | **TESTED** |
 | 规则声明漂移检查 | **TESTED** |
+| **经济专项测试**（结算/利息/买卖/reroll/拒绝路径） | **TESTED**：`tests/test_economy.py` |
 | 性能基准脚本 + 实测数据 | **DONE**：`benchmarks/bench.py`、`docs/implementation/performance.md` |
 | 实现文档（9 份） | **DONE**：`docs/implementation/` |
 | 与真游戏对齐验证（A0–A4） | **NOT_VERIFIED / 未执行** |
 
-## 5. 明确排除（不实现，不进入训练集）
+## 5. 明确排除（不实现，不进入训练集，v2 共 18 项）
 
-`money`、`interest`、`shop_economy`、`boss_effects`、`consumables_tarot_planet_spectral`、`vouchers`、`booster_packs`、`card_enhancements`、`card_seals`、`card_editions`、`multi_deck`、`multi_stake`、`tags_and_blind_skip`、`endless_mode`、`hand_levels_gt1`、`retriggers`、`blueprint_brainstorm`、`joker_editions`、`negative_joker_slots`、`held_in_hand_card_effects`、`stone_gold_glass_steel_lucky_cards`。
+`boss_effects`、`consumables_tarot_planet_spectral`、`vouchers`、`booster_packs`、`card_enhancements`、`card_seals`、`card_editions`、`multi_deck`、`multi_stake`、`tags_and_blind_skip`、`endless_mode`、`hand_levels_gt1`、`retriggers`、`blueprint_brainstorm`、`joker_editions`、`negative_joker_slots`、`held_in_hand_card_effects`、`stone_gold_glass_steel_lucky_cards`。
+
+> v2 起 `money` / `interest` / `shop_economy` **不再**在此列表：它们已是实现项（见 §1）。
 
 ## 6. 不能宣称的事项（与 README/AGENTS 一致）
 
 1. 不能宣称“与 vanilla 1.0.1o 对齐/已验证/已终验”；当前 `NOT_VERIFIED`。
 2. 不能宣称“Boss 效果已实现”；只按目标分建模，效果被排除。
-3. 不能宣称“金钱/商店经济/长期构建已实现”。
-4. 不能宣称“长线规划四支柱已覆盖”。
-5. 不能宣称“O1 是全局最优”；它是当前手牌局部 argmax。
-6. 不能宣称“124 测试通过 = 规则与真游戏一致”。
-7. 不能把旧 `bench/logging.py` 的 schema 1 当作新 trace；新链路用 `evaluation.trace` schema 2。
+3. **可以**宣称“金钱/利息/商店已实现（v2）”，但**不能**宣称“经济与 vanilla 一致”：价格是稀有度中值、候选均匀抽样、利息顺序未实测。
+4. 不能宣称“跨回合资源分配已覆盖”：只有载体，没有指标定义与经济场景集。
+5. 不能宣称“长期构建 / 失败恢复 / 长线指标已覆盖”。
+6. 不能宣称“O1 是全局最优”；它是当前手牌局部 argmax。
+7. 不能宣称“157 测试通过 = 规则与真游戏一致”。
+8. 不能把旧 `bench/logging.py` 的 schema 1 当作新 trace；新链路用 `evaluation.trace` schema 2。
 
 ## 7. 下一步建议
 
 ### P0（先做）
 1. **A2/A3 真游戏实测**：W3 捕获 30 锚点 + 30 反事实变体，逐局面比 `engine_score == real_score`；用本实现的 trace `state_hash` 对账。
-2. **取整/contains/跨盲注 三项未验证口径**：用真游戏局面做定向实验并写入 `docs/engine-fidelity.md`。
-3. **真实模型端点 smoke**：用 `HttpChatAgent` + 真实端点跑 1 个 episode，确认工具 schema/解析/重试/超时；未完成前状态保持“fake-only”。
+2. **经济口径实测**：利息结算顺序（入账前/后）、Joker 实际售价区间、reroll 价曲线 —— 用真游戏商店截图/捕获核对，写进 `docs/quality/engine-fidelity.md` 后逐条从 `unverified` 移出。
+3. **取整/contains/跨盲注 三项未验证口径**：用真游戏局面做定向实验并写入 `docs/quality/engine-fidelity.md`。
+4. **真实模型端点 smoke**：用 `HttpChatAgent` + 真实端点跑 1 个 episode，确认工具 schema/解析/重试/超时；未完成前状态保持“fake-only”。
 
 ### P1（可信度）
-4. **MCP stdio 端到端**：dsh 连接 `bridge/server.py` 跑 ≥3 次工具调用的 episode，验证工具错误码与 trace。
-5. **多进程分片**：按 scenario 分片并行，使 90 局/12 局实验可线性扩展；保持每进程独立 run 目录。
-6. **O2 抽样模型修正**：从 `rng_state` 复现真实发牌（或明确只作启发式），报告带 K/seed 派生说明。
-7. **Boss 效果子集**：优先实现纯计分型（The Wall 4×、The Needle 1 手）再做 debuff 型；每个效果单独金样。
+5. **MCP stdio 端到端**：dsh 连接 `bridge/server.py` 跑 ≥3 次工具调用的 episode，验证工具错误码与 trace。
+6. **多进程分片**：按 scenario 分片并行，使 90 局/12 局实验可线性扩展；保持每进程独立 run 目录。
+7. **O2 抽样模型修正**：从 `rng_state` 复现真实发牌（或明确只作启发式），报告带 K/seed 派生说明。
+8. **Boss 效果子集**：优先实现纯计分型（The Wall 4×、The Needle 1 手）再做 debuff 型；每个效果单独金样。
 
 ### P2（工程）
-8. 优化 `legal_actions`/`build_observation` 的每步开销（惰性枚举/缓存），减少每步 ~3 ms。
-9. Trace 可选批量 fsync（崩溃语义需文档化）。
-10. 把 `benchmarks/bench.py` 接入 CI 的 smoke 阈值（防止性能回退）。
-11. 将 `results.jsonl` 离线转 Parquet 的脚本（外部依赖，不入库）。
+9. 优化 `legal_actions`/`build_observation` 的每步开销（惰性枚举/缓存），减少每步 ~3 ms。
+10. Trace 可选批量 fsync（崩溃语义需文档化）。
+11. 把 `benchmarks/bench.py` 接入 CI 的 smoke 阈值（防止性能回退）。
+12. 将 `results.jsonl` 离线转 Parquet 的脚本（外部依赖，不入库）。

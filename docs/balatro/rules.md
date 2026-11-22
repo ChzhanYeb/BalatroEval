@@ -3,9 +3,9 @@
 > **适用范围：vanilla Balatro 1.0.1o（PC/Steam）；Wiki 抓取日期 2026-11-15，Wiki 可能已含后续版本内容，与 1.0.1o 冲突处在文中标注 ⏳ 待真游戏核对。**
 >
 > 用途：把原版（vanilla）的**机制与数值事实**整理成台账，作为 W3 把 `bench/` 引擎对齐到 1.0.1o 的**目标值**。 \
-> **边界（红线）**：本文只描述 vanilla 事实，**不评估、不声称** `bench/` 已对齐/已验证。`bench/` 现状与差异见 [engine-gap.md](engine-gap.md)；对齐等级与证据见 [../engine-fidelity.md](../engine-fidelity.md)。
+> **边界（红线）**：本文只描述 vanilla 事实，**不评估、不声称** `bench/` 已对齐/已验证。`bench/` 现状与差异见 [engine-gap.md](engine-gap.md)；对齐等级与证据见 [../engine-fidelity.md](../quality/engine-fidelity.md)。
 > 版本：2026-11-15 ｜ 状态：📋 事实台账（✅ 已核 / △ 仅元数据 / ⏳ 未核实）
-> 合规：数据取自 `balatrowiki.org`（**CC BY-NC-SA 3.0**）。按 [../data-sources.md](../data-sources.md) §5 红线（L7–L9）：**只提取不可版权的事实数值（名称/数字/条件/表格数值），全部描述用中文自行重写，未逐句搬运 Wiki 文本，未贴图**。
+> 合规：数据取自 `balatrowiki.org`（**CC BY-NC-SA 3.0**）。按 [../data-sources.md](../quality/data-sources.md) §5 红线（L7–L9）：**只提取不可版权的事实数值（名称/数字/条件/表格数值），全部描述用中文自行重写，未逐句搬运 Wiki 文本，未贴图**。
 
 ---
 
@@ -15,7 +15,7 @@
 
 | 覆盖 | 不含（本文不写） |
 |---|---|
-| 一局结构（run/底注/盲注/回合/商店）、资源常量、算分顺序、牌型与等级、经济、商店、卡牌改造、盲注与底注数值、Tag、模式与牌组 | Joker 逐个效果（见 [../joker-semantics.md](../joker-semantics.md)）、Tarot/Spectral 逐张效果、成就、解锁条件细节、UI 操作 |
+| 一局结构（run/底注/盲注/回合/商店）、资源常量、算分顺序、牌型与等级、经济、商店、卡牌改造、盲注与底注数值、Tag、模式与牌组 | Joker 逐个效果（见 [../joker-semantics.md](../quality/joker-semantics.md)）、Tarot/Spectral 逐张效果、成就、解锁条件细节、UI 操作 |
 | 数值口径：**vanilla 1.0.1o 的"事实值"** | 社区 mod、其它版本（移动端/主机端差异）、demo 版本数值 |
 
 ### 0.2 证据等级
@@ -153,7 +153,7 @@
 
 ## 3. 出牌 / 弃牌 / 手牌 / 资源常量
 
-### 3.1 资源常量总表（W3 目标值）
+### 3.1 资源常量总表（vanilla 事实值；子集已实现，未对齐验证）
 
 | 常量 | 基础值 | 可变来源（例） | 证据 |
 |---|---:|---|---|
@@ -188,7 +188,7 @@
 
 ### 3.4 与 bench 相关的边界提示
 
-- 当前 `bench/` 的 `HANDS_PER_BLIND=4` / `DISCARDS_PER_BLIND=2` / 3 个 Joker 槽位均**不是** vanilla 值；本文 §3.1 是 W3 目标值，不构成"已对齐"证据。差异见 [engine-gap.md](engine-gap.md) §1 第 3–5 行。
+- 当前 `bench/`（vanilla 子集 v1）已使用 4 手/4 弃、5 个 Joker 槽位、300/450/600；这些取值来自 Wiki 事实页，仍未经真游戏 A2/A3 验证。本文 §3.1 是 vanilla 事实口径，不构成"已对齐"证据；实现细节见 [../implementation/rules-implementation.md](../implementation/rules-implementation.md)，旧 L0 与 vanilla 的逐项差异（2026-11-15 快照）见 [engine-gap.md](engine-gap.md) §1 第 3–5 行。
 
 > 来源：[Hands](https://balatrowiki.org/w/Hands?action=raw) ✅、[Discards](https://balatrowiki.org/w/Discards?action=raw) ✅、[Hand size](https://balatrowiki.org/w/Hand_size?action=raw) ✅、[Jokers](https://balatrowiki.org/w/Jokers?action=raw) ✅（"Most runs will begin with 5 empty Joker slots"）、[Consumables](https://balatrowiki.org/w/Consumables?action=raw) ✅（"2 consumable slots are available initially"）、[Gameplay loop](https://balatrowiki.org/w/Gameplay_loop?action=raw) ✅（"select up to five cards"）、[Score](https://balatrowiki.org/w/Score?action=raw) ✅（2026-11-15）
 

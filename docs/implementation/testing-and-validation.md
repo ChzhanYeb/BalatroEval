@@ -1,7 +1,7 @@
 # 测试与验证
 
 > 本文件记录**实际执行过的**测试与结果；未执行的命令不写成“通过”。
-> 时间：2026-11-17 ｜ 环境：Windows 11 / Python 3.15.2 / stdlib-only。
+> 时间：2026-11-22（v2 经济子集） ｜ 环境：Windows 11 / Python 3.15.2 / stdlib-only。
 
 ## 1. 如何运行
 
@@ -29,16 +29,17 @@ python -m evaluation batch --scenarios scenarios/dev --agent oracle-greedy --exp
 python -m evaluation report --run-dir runs/smoke
 ```
 
-## 2. 测试清单（**124** 项，全部通过）
+## 2. 测试清单（**157** 项，全部通过）
 
 | 文件 | 用例数 | 覆盖 | 证明什么 / 不证明什么 |
 |---|---:|---|---|
 | `tests/test_w2_rules.py` | 40 | 12 牌型识别、边界（4K kicker、wheel/Broadway、隐藏牌型）、基础分表、计分牌筛选、golden（7h7d=48；Joker 顺序 288/192；三条+Joker 810；Boss two-pair 744）、8 Joker 条件、contains、无副作用 | 证明**本子集规则实现自洽**；不证明与真游戏一致 |
-| `tests/test_environment.py` | 30 | `new_game` 常量、盲注推进、胜负、弃牌、非法动作错误码、快照/还原/哈希、动作 canonical、Environment 接口、场景动作限制、max_steps 截断、工具层 envelope、bridge 无 SDK 可导入 | 证明环境/工具接口与状态语义；不证明真实 MCP 对话 |
-| `tests/test_scenarios.py` | 17 | dev 场景加载、JSONL、rules_version 不匹配、Boss 效果拒绝、未知扩展、real_capture 无 capture_id、重复牌、未知字段、动作种类约束 | 证明场景校验 fail-fast |
-| `tests/test_runtime.py` | 16 | golden episode（48/regret 0/optimality 1）、discard 决策点、agent_error 隔离、非法动作上限、确定性重放、batch 写入、resume、retry-failed、失败隔离、并发隔离、metrics、trace、HTTP fake transport（缓存/重试/超时） | 证明 runner/trace/metrics/adapter 可用；HTTP 仅 fake transport |
-| `tests/test_properties.py` | 9 | 52 张守恒（20 seeds×30 步）、`score=floor(chips×mult)`、trace 末条一致、无副作用、环境隔离、非法动作不改状态、436 动作 code 唯一、动作序列重放同 hash、手牌上限 | 证明不变量；不证明数值与真游戏一致 |
-| `tests/test_rules_declaration.py` | 9 | `Ruleset` ↔ JSON 镜像 ↔ `RULES_VERSION`、300/450/600、4/4/8/5、基础分表、8 Joker、excluded 列表、扩展签名 | 证明**声明与代码不漂移** |
+| `tests/test_economy.py` | 23 | **经济专项**：结算明细（奖励/手数/弃牌/利息）、利息上限、入账前金额口径、Boss 不结算商店、2 报价定价、买入扣钱并留在商店、钱不够/槽位满拒绝、卖出半价、reroll 涨价与拒绝、离开保留 money、商店合法动作集、reset 开商店、快照/观察/文本含经济字段 | 证明经济账本自洽；**不证明**价格/权重/顺序与真游戏一致 |
+| `tests/test_environment.py` | 30 | `new_game` 常量（含 $4）、盲注推进/结算/进商店、胜负、弃牌、非法动作错误码、快照/还原/哈希、动作 canonical、Environment 接口、场景动作限制、max_steps 截断、工具层 envelope、bridge 无 SDK 可导入 | 证明环境/工具接口与状态语义；不证明真实 MCP 对话 |
+| `tests/test_scenarios.py` | 21 | dev 场景加载、JSONL、rules_version 不匹配、Boss 效果拒绝、扩展退役/未知扩展、real_capture 无 capture_id、重复牌、未知字段、动作种类约束、**shop 决策点必须 shop_open、负金钱拒绝、Boss 后开商店拒绝** | 证明场景校验 fail-fast |
+| `tests/test_runtime.py` | 17 | golden episode（48/regret 0/optimality 1/final_money 4）、**商店决策点 episode（buy→leave，final_money 1）**、discard 决策点、agent_error 隔离、非法动作上限、确定性重放、batch 写入、resume、retry-failed、失败隔离、并发隔离、metrics、trace、HTTP fake transport（缓存/重试/超时） | 证明 runner/trace/metrics/adapter 可用；HTTP 仅 fake transport |
+| `tests/test_properties.py` | 9 | 52 张守恒（20 seeds×30 步，含商店动作）、`score=floor(chips×mult)`、trace 末条一致、无副作用、环境隔离、非法动作不改状态、436 动作 code 唯一、动作序列重放同 hash、手牌上限 | 证明不变量；不证明数值与真游戏一致 |
+| `tests/test_rules_declaration.py` | 14 | `Ruleset` ↔ JSON 镜像 ↔ `RULES_VERSION`、300/450/600 + 奖励 3/4/5、4/4/8/5、基础分表、8 Joker、excluded 列表、**经济常量与利息档位、卖价、扩展全拒绝、经济未验证项** | 证明**声明与代码不漂移** |
 | `tests/test_performance_smoke.py` | 3 | 计分 500 次 <2s、env 100 次 reset+step <10s、O1 单次 <0.5s | 防止无意数量级退化；不是基准 |
 
 ### 2.1 实测输出（原文摘录）
@@ -46,7 +47,7 @@ python -m evaluation report --run-dir runs/smoke
 ```text
 $ python -m unittest discover -s tests
 ----------------------------------------------------------------------
-Ran 124 tests in 5.5s
+Ran 157 tests in 5.5s
 
 OK
 ```
@@ -85,8 +86,9 @@ summary: mean_reward=48.0, mean_regret=0.0, optimality_rate=1.0, legality_rate=1
 - Royal Flush 仅标记 `is_royal_flush`，牌型仍为 Straight Flush；
 - 隐藏牌型（五条/同花葫芦/同花五条）代码路径（标准 52 张不可达，用重复牌分类测试）；
 - 高牌 5 张只计 1 张；四条带 kicker；对子带 3 张 kicker；
-- 非法动作：未知/重复 ID、0 张、6 张、done 后动作、无弃牌、无手数、商店未启用；
-- 资源归零、最后一手同时达标（达标优先于判负）、max_steps 截断。
+- 非法动作：未知/重复 ID、0 张、6 张、done 后动作、无弃牌、无手数、非商店阶段买卖、钱不够买/reroll、Joker 槽位满；
+- 资源归零、最后一手同时达标（达标优先于判负）、max_steps 截断；
+- 经济边界：利息在 $4/$5/$24/$25/$100 的分档与上限、Boss 通关结算但不进商店、离开商店后 money 保留且 reroll 价重置。
 
 ## 5. Property-based（等价性质，无 Hypothesis 依赖）
 
@@ -105,7 +107,7 @@ summary: mean_reward=48.0, mean_regret=0.0, optimality_rate=1.0, legality_rate=1
 |---|---|---|
 | Environment ↔ Rules | `test_environment` 全链路 | ✅ |
 | Environment ↔ Oracle | O1 与独立枚举 10/10 | ✅（只证搜索路径一致） |
-| Scenario Loader ↔ Environment | dev 场景 6 个全部可 reset | ✅ |
+| Scenario Loader ↔ Environment | dev 场景 7 个全部可 reset（含 shop 决策点） | ✅ |
 | Episode Runner ↔ Trace | step/start/end schema、hash、decision_metric | ✅ |
 | Batch ↔ 并发隔离 | 4 并发任务 trace 的 scenario_id/task_id 对应正确 | ✅ |
 | 失败隔离 | 一个 task agent_error，另一个 completed | ✅ |
@@ -116,18 +118,19 @@ summary: mean_reward=48.0, mean_regret=0.0, optimality_rate=1.0, legality_rate=1
 
 ## 7. 新规则替换旧测试的说明（合规）
 
-旧 `tests/test_w2_rules.py` 断言 L0 自定义公式（如 Pair 7h7d = 28、`HAND_MULT` 表、3 槽位）。本次 W3 规则升级明确要求“牌型基础 Chips×Mult + 计分牌筛选 + 300/450/600 + 4/4 + 5 槽 + 8 具名 Joker”（见 `docs/balatro/engine-gap.md`、`plan/01-每周任务.md` W3）。旧断言对应的是被替代的规则版本，因此重写为 vanilla 子集断言，并在文件头记录依据；这不是“为了通过测试而修改期望值”，而是规则版本升级的同步。
+旧 `tests/test_w2_rules.py` 断言 L0 自定义公式（如 Pair 7h7d = 28、`HAND_MULT` 表、3 槽位）。2026-11-17 的规则升级（计划外增量）明确要求“牌型基础 Chips×Mult + 计分牌筛选 + 300/450/600 + 4/4 + 5 槽 + 8 具名 Joker”（见 `docs/balatro/engine-gap.md`、`plan/详细版/02-规则引擎与对拍.md`）。旧断言对应的是被替代的规则版本，因此重写为 vanilla 子集断言，并在文件头记录依据；这不是“为了通过测试而修改期望值”，而是规则版本升级的同步。
 
 ## 8. 未验证 / 未覆盖（不得写成已通过）
 
 | 项 | 现状 | 影响 | 建议 |
 |---|---|---|---|
 | A2 单步分数与真游戏一致 | **0 行实测** | 分数绝对值可能不同（取整/contains/触发时机） | W3 真游戏捕获 + 逐局面 diff |
-| A3 规则子集对齐 | 未签核 | 合法动作集/资源语义未对拍 | `docs/engine-fidelity.md` A 表 |
+| A3 规则子集对齐 | 未签核 | 合法动作集/资源语义未对拍 | `docs/quality/engine-fidelity.md` A 表 |
 | 最终取整方式 | Wiki 未明写；按 floor 候选 | 某些小数倍率局面可能差 1 | A2 多组 ×1.5 局面 |
 | contains 4K/5K vs Pair/Three | structural-superset 口径 | Jolly/Sly/The Duo/Zany 等触发范围可能偏大/偏小 | 真游戏实测条件边界 |
 | 跨盲注手牌/牌堆处理 | 本实现自定义（剩余手牌入弃牌堆、补满） | 与 vanilla 可能不同 | A1/A4 捕获 |
 | Boss 效果 | 未实现（仅 600 分） | 不能用于 A3 场景 | 后续单独实现 + 金样 |
+| **经济口径**（利息顺序 / 固定价 / 均匀抽样 / 商店 RNG / 卖出后重现） | **未与真游戏实测**（`Ruleset.unverified` 5 条） | 经济决策的“最优”结论不可外推到真游戏 | 真游戏商店截图/捕获逐条核对，再移出 `unverified` |
 | 旧日志 `bench/logging.py` | LEGACY，未接入新链路 | 误用会写旧 schema | 新代码用 `evaluation.trace` |
 | 真实模型服务 | 未实测（仅 fake transport） | HTTP Adapter 兼容性未知 | 用真实端点做一次 smoke |
 | MCP stdio 端到端 | 仅验证 `build_server()` + 工具注册（bridge venv） | 未做真实 dsh 会话 | W4 工具层联调 |
@@ -136,9 +139,9 @@ summary: mean_reward=48.0, mean_regret=0.0, optimality_rate=1.0, legality_rate=1
 
 | 命令 | 预期 | 实测 |
 |---|---|---|
-| `python -m unittest discover -s tests` | 124 tests OK | ✅ Ran 124 / OK |
+| `python -m unittest discover -s tests` | 157 tests OK | ✅ Ran 157 / OK |
 | `python -m bench verify --samples 10` | passed=true，每例 218 | ✅ |
-| `python -m bench demo --seed 20261117` | 正常 JSON，phase=done | ✅ loss / 4 步 / blind_scores [200] |
+| `python -m bench demo --seed 20261112 --max-steps 50` | 正常 JSON，phase=done | ✅ win / 12 步 / blind_scores [412,620,640] / total 1672 / money 14 |
 | `python -m evaluation batch … --no-oracle` | counts 全 completed/truncated，无异常 | ✅ |
 | `python -m compileall -q …` | 无输出/退出 0 | ✅（需 `PYTHONPYCACHEPREFIX`） |
 | `python -m benchmarks.bench --quick` | 打印 JSON | ✅（结果见 performance.md） |
