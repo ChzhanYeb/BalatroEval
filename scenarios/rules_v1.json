@@ -1,0 +1,66 @@
+{
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "target_game_version": "1.0.1o",
+  "deck": "red",
+  "stake": "white",
+  "ante": 1,
+  "max_ante": 1,
+  "hands_per_blind": 4,
+  "discards_per_blind": 4,
+  "hand_size": 8,
+  "joker_slots": 5,
+  "max_play_cards": 5,
+  "max_discard_cards": 5,
+  "shop_enabled": false,
+  "blinds": [
+    {"index": 0, "kind": "small", "name": "Small Blind", "base_score": 300, "multiplier": "1/1", "target": 300, "reward_money": 3, "effect": null},
+    {"index": 1, "kind": "big", "name": "Big Blind", "base_score": 300, "multiplier": "3/2", "target": 450, "reward_money": 4, "effect": null},
+    {"index": 2, "kind": "boss", "name": "Boss Blind", "base_score": 300, "multiplier": "2/1", "target": 600, "reward_money": 5, "effect": null}
+  ],
+  "hand_base_score": {
+    "high_card": {"chips": 5, "mult": 1},
+    "pair": {"chips": 10, "mult": 2},
+    "two_pair": {"chips": 20, "mult": 2},
+    "three_kind": {"chips": 30, "mult": 3},
+    "straight": {"chips": 30, "mult": 4},
+    "flush": {"chips": 35, "mult": 4},
+    "full_house": {"chips": 40, "mult": 4},
+    "four_kind": {"chips": 60, "mult": 7},
+    "straight_flush": {"chips": 100, "mult": 8},
+    "five_kind": {"chips": 120, "mult": 12},
+    "flush_house": {"chips": 140, "mult": 14},
+    "flush_five": {"chips": 160, "mult": 16}
+  },
+  "implemented": [
+    "deck_standard_52", "deck_red_plus1_discard", "stake_white", "hand_size_8",
+    "hands_4_per_blind", "discards_4_per_blind", "joker_slots_5",
+    "ante1_blinds_small300_big450_boss600", "play_1_to_5_cards", "discard_1_to_5_cards",
+    "draw_and_reshuffle_discard_pile", "hand_types_9_regular", "hand_types_3_secret",
+    "hand_base_chips_mult_level1", "scoring_card_filtering", "jokers_8_named_vanilla",
+    "joker_conditions_contains_pair_contains_three_cards_le_3",
+    "blind_progression_and_win_loss", "deterministic_rng_state", "snapshot_restore"
+  ],
+  "unverified": [
+    "final_score_rounding_floor_candidate",
+    "contains_relation_for_four_kind_and_five_kind",
+    "cross_blind_hand_redraw_policy", "boss_blind_effect_absent",
+    "hand_level_greater_than_1", "real_game_single_step_score_equality_A2"
+  ],
+  "excluded": [
+    "money", "interest", "shop_economy", "boss_effects",
+    "consumables_tarot_planet_spectral", "vouchers", "booster_packs",
+    "card_enhancements", "card_seals", "card_editions", "multi_deck", "multi_stake",
+    "tags_and_blind_skip", "endless_mode", "hand_levels_gt1", "retriggers",
+    "blueprint_brainstorm", "joker_editions", "negative_joker_slots",
+    "held_in_hand_card_effects", "stone_gold_glass_steel_lucky_cards"
+  ],
+  "fidelity_status": "NOT_VERIFIED",
+  "alignment_level": "L0",
+  "notes": [
+    "Implemented != verified. A2 (real-game single-step score equality) has 0 measured rows.",
+    "Boss Blind is modeled as a score-only blind: every Ante 1 boss effect is NOT implemented; scenarios requesting a boss effect must be rejected by the scenario validator.",
+    "Shop extension (free 3-choose-1 joker) is a benchmark scaffold, disabled by default; it is not vanilla and must never be cited as alignment evidence.",
+    "Score rounding: floor(chips*mult) at the end is a candidate convention; the wiki does not state it explicitly, so it stays UNVERIFIED.",
+    "Contains relation: structural superset policy; 4K/5K vs Pair/Three is UNVERIFIED."
+  ]
+}

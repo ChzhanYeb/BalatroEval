@@ -3,6 +3,10 @@
 > 本文为中文版（W2 v2.1 历史版见提交 `c65fb9b`）。
 > 版本：v3.0-2026-11-13 ｜ 依据：`plan/详细版/07-真实游戏接入与终验.md` §7.2
 > 关联：`bench/jokers.py`（当前实现）、`docs/engine-fidelity.md`（对齐台账）、`scenarios/RULES_VERSION`
+>
+> **2026-11-17 状态更新**：§2 的 8 个 vanilla Joker 已实现（`bench/jokers.py::VANILLA_JOKERS`，
+> 状态 IMPLEMENTED + TESTED）；触发条件采用 `structural_superset` 口径（4K/5K 边界 UNVERIFIED）。
+> 合成夹具（§4）已移出生产目录，仅作历史/测试参考。与真游戏的一致性仍为 `NOT_VERIFIED`。
 
 ---
 

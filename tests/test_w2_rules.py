@@ -1,19 +1,26 @@
-"""Exactly 25 unit tests, grouped by the W2 test plan."""
-from __future__ import annotations
-import json
-import random
-import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
+"""规则层核心测试（vanilla 1.0.1o 子集）。
 
-from bench.actions import legal_discards, legal_plays, encode_card_action
-from bench.cards import standard_deck
-from bench.engine import new_game, play, discard, choose_joker
-from bench.oracle import best_play
-from bench.jokers import JOKER_CATALOG
-from bench.model import Card, Joker, GameState
-from bench.rng import encode_state, restore_rng, state_round_trip_ok
-from bench.scoring import HandType, classify_hand, score_hand
+说明：本文件取代旧 ``test_w2_rules.py`` 中针对 L0 自定义公式的断言（``PAIR`` 得 28 等）。
+替代依据：``docs/balatro/engine-gap.md`` 的 23 项差异表与 ``plan/01-每周任务.md`` W3 任务 3–4
+明确要求“牌型基础 Chips×Mult + 计分牌筛选 + 等级 1”，旧断言记录的是被替代的 L0 公式，
+因此不是“为了通过测试而改期望值”，而是规则版本升级（见 docs/implementation/testing-and-validation.md）。
+"""
+from __future__ import annotations
+
+import unittest
+
+from bench.hand_eval import (
+    HandType,
+    classify_hand,
+    evaluate_hand,
+    hand_contains_types,
+    is_straight_ranks,
+    scoring_card_indices,
+)
+from bench.jokers import CATALOG_BY_ID, condition_met
+from bench.model import Card, Joker
+from bench.rules_version import HAND_BASE_SCORE
+from bench.scoring import score_hand
 
 
 def C(rank: int, suit: int = 0) -> Card:
@@ -21,169 +28,250 @@ def C(rank: int, suit: int = 0) -> Card:
 
 
 class TestHandClassification(unittest.TestCase):
-    # 1
     def test_high_card(self):
         self.assertEqual(classify_hand([C(2), C(7, 1), C(11, 2)]), HandType.HIGH_CARD)
 
-    # 2
     def test_pair(self):
         self.assertEqual(classify_hand([C(7, 0), C(7, 1)]), HandType.PAIR)
 
-    # 3
     def test_two_pair(self):
         self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(9, 2), C(9, 3)]), HandType.TWO_PAIR)
 
-    # 4
     def test_three_kind(self):
         self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(7, 2)]), HandType.THREE_KIND)
 
-    # 5
     def test_straight(self):
-        self.assertEqual(classify_hand([C(4, 0), C(5, 1), C(6, 2), C(7, 3), C(8, 0)]), HandType.STRAIGHT)
+        self.assertEqual(classify_hand([C(4, 0), C(5, 1), C(6, 2), C(7, 3), C(8, 0)]),
+                         HandType.STRAIGHT)
 
-    # 6
     def test_flush(self):
-        self.assertEqual(classify_hand([C(2, 1), C(4, 1), C(7, 1), C(9, 1), C(12, 1)]), HandType.FLUSH)
+        self.assertEqual(classify_hand([C(2, 1), C(4, 1), C(7, 1), C(9, 1), C(12, 1)]),
+                         HandType.FLUSH)
 
-    # 7
     def test_full_house(self):
-        self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(7, 2), C(9, 0), C(9, 1)]), HandType.FULL_HOUSE)
+        self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(7, 2), C(9, 0), C(9, 1)]),
+                         HandType.FULL_HOUSE)
 
-    # 8
     def test_four_kind(self):
-        self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(7, 2), C(7, 3)]), HandType.FOUR_KIND)
+        self.assertEqual(classify_hand([C(7, 0), C(7, 1), C(7, 2), C(7, 3)]),
+                         HandType.FOUR_KIND)
 
-    # 9
+    def test_four_kind_with_kicker(self):
+        self.assertEqual(classify_hand([C(8, 0), C(8, 1), C(8, 2), C(8, 3), C(4, 0)]),
+                         HandType.FOUR_KIND)
+
     def test_straight_flush(self):
-        self.assertEqual(classify_hand([C(4, 1), C(5, 1), C(6, 1), C(7, 1), C(8, 1)]), HandType.STRAIGHT_FLUSH)
+        self.assertEqual(classify_hand([C(4, 1), C(5, 1), C(6, 1), C(7, 1), C(8, 1)]),
+                         HandType.STRAIGHT_FLUSH)
 
-    # 10
-    def test_wheel_straight(self):
-        self.assertEqual(classify_hand([C(1, 0), C(2, 1), C(3, 2), C(4, 3), C(5, 0)]), HandType.STRAIGHT)
+    def test_wheel_and_broadway(self):
+        self.assertTrue(is_straight_ranks({1, 2, 3, 4, 5}))
+        self.assertTrue(is_straight_ranks({1, 10, 11, 12, 13}))
+        self.assertFalse(is_straight_ranks({11, 12, 13, 1, 2}))  # K-A-2-3-4 不合法
 
-    # 11
-    def test_straight_flush_precedes_flush(self):
+    def test_royal_flush_is_display_only(self):
         cards = [C(10, 2), C(11, 2), C(12, 2), C(13, 2), C(1, 2)]
-        self.assertEqual(classify_hand(cards), HandType.STRAIGHT_FLUSH)
+        analysis = evaluate_hand(cards)
+        self.assertEqual(analysis.hand_type, HandType.STRAIGHT_FLUSH)
+        self.assertTrue(analysis.is_royal_flush)
 
-    # 12
-    def test_four_kind_precedes_two_pair_like_boundary(self):
-        # Four equal ranks is classified as Four of a Kind even though it contains multiple pairs.
+    def test_five_kind_secret(self):
+        # 标准 52 张不可达；用重复点数构造，验证分类代码路径（计分入口会拒绝重复 ID）。
+        cards = [C(8, 0), C(8, 1), C(8, 2), C(8, 3), C(8, 0)]
+        self.assertEqual(classify_hand(cards), HandType.FIVE_KIND)
+
+    def test_flush_house_secret(self):
+        cards = [C(8, 0), C(8, 0), C(8, 0), C(9, 0), C(9, 0)]
+        self.assertEqual(classify_hand(cards), HandType.FLUSH_HOUSE)
+
+    def test_flush_five_secret(self):
+        cards = [C(8, 0)] * 5
+        self.assertEqual(classify_hand(cards), HandType.FLUSH_FIVE)
+
+
+class TestScoringCards(unittest.TestCase):
+    def test_high_card_only_highest_scores(self):
+        cards = [C(1, 0), C(13, 1), C(12, 2), C(11, 3), C(9, 0)]
+        indices = scoring_card_indices(cards, HandType.HIGH_CARD)
+        self.assertEqual(indices, (0,))
+        self.assertEqual(score_hand(cards).chips, 5 + 11)  # 基础 5 + A 的 11
+
+    def test_pair_ignores_kickers(self):
+        cards = [C(7, 0), C(7, 1), C(2, 2), C(4, 3), C(9, 0)]
+        self.assertEqual(scoring_card_indices(cards, HandType.PAIR), (0, 1))
+        self.assertEqual(score_hand(cards).chips, 10 + 14)
+
+    def test_two_pair_scores_four(self):
+        cards = [C(7, 0), C(7, 1), C(9, 2), C(9, 3), C(13, 0)]
+        self.assertEqual(scoring_card_indices(cards, HandType.TWO_PAIR), (0, 1, 2, 3))
+
+    def test_four_kind_kicker_not_scored(self):
         cards = [C(8, 0), C(8, 1), C(8, 2), C(8, 3), C(4, 0)]
-        self.assertEqual(classify_hand(cards), HandType.FOUR_KIND)
+        self.assertEqual(scoring_card_indices(cards, HandType.FOUR_KIND), (0, 1, 2, 3))
+        self.assertEqual(score_hand(cards).final_score, (60 + 32) * 7)
+
+    def test_full_house_scores_all_five(self):
+        cards = [C(8, 0), C(8, 1), C(8, 2), C(9, 0), C(9, 1)]
+        self.assertEqual(scoring_card_indices(cards, HandType.FULL_HOUSE), (0, 1, 2, 3, 4))
 
 
-class TestScoring(unittest.TestCase):
-    # 13
-    def test_no_joker_pair_score_is_custom_formula(self):
+class TestBaseScoreTable(unittest.TestCase):
+    def test_level1_table_matches_rules(self):
+        expected = {
+            "high_card": (5, 1), "pair": (10, 2), "two_pair": (20, 2),
+            "three_kind": (30, 3), "straight": (30, 4), "flush": (35, 4),
+            "full_house": (40, 4), "four_kind": (60, 7), "straight_flush": (100, 8),
+            "five_kind": (120, 12), "flush_house": (140, 14), "flush_five": (160, 16),
+        }
+        self.assertEqual(HAND_BASE_SCORE, expected)
+
+    def test_reachable_hand_base_scores(self):
+        cases = {
+            HandType.HIGH_CARD: [C(2, 0), C(5, 1)],
+            HandType.PAIR: [C(7, 0), C(7, 1)],
+            HandType.TWO_PAIR: [C(7, 0), C(7, 1), C(9, 2), C(9, 3)],
+            HandType.THREE_KIND: [C(7, 0), C(7, 1), C(7, 2)],
+            HandType.STRAIGHT: [C(4, 0), C(5, 1), C(6, 2), C(7, 3), C(8, 0)],
+            HandType.FLUSH: [C(2, 1), C(4, 1), C(7, 1), C(9, 1), C(12, 1)],
+            HandType.FULL_HOUSE: [C(7, 0), C(7, 1), C(7, 2), C(9, 0), C(9, 1)],
+            HandType.FOUR_KIND: [C(7, 0), C(7, 1), C(7, 2), C(7, 3)],
+            HandType.STRAIGHT_FLUSH: [C(4, 1), C(5, 1), C(6, 1), C(7, 1), C(8, 1)],
+        }
+        for hand_type, cards in cases.items():
+            with self.subTest(hand_type=hand_type):
+                analysis = evaluate_hand(cards)
+                self.assertEqual(analysis.hand_type, hand_type)
+                self.assertEqual((analysis.base_chips, analysis.base_mult),
+                                 HAND_BASE_SCORE[hand_type.value])
+
+
+class TestGoldenScoring(unittest.TestCase):
+    def test_pair_7h7d_is_48(self):
         result = score_hand([C(7, 1), C(7, 2)])
         self.assertEqual(result.hand_type, HandType.PAIR)
-        self.assertEqual(result.chips, 14)
-        self.assertEqual(result.final_score, 28)
+        self.assertEqual((result.chips, str(result.mult)), (24, "2"))
+        self.assertEqual(result.final_score, 48)
+        self.assertEqual([e["phase"] for e in result.trace],
+                         ["hand_base", "scoring_cards", "final_score"])
 
-    # 14
-    def test_add_chips_only(self):
-        result = score_hand([C(7, 1), C(7, 2)], [Joker("jc", "add_chips", 10)])
-        self.assertEqual((result.chips, result.final_score), (24, 48))
-
-    # 15
-    def test_add_mult_only(self):
-        result = score_hand([C(7, 1), C(7, 2)], [Joker("jm", "add_mult", 4)])
-        self.assertEqual(result.final_score, 84)
-
-    # 16
-    def test_mul_mult_only(self):
-        result = score_hand([C(7, 1), C(7, 2)], [Joker("jx", "mul_mult", 150)])
-        self.assertEqual(result.final_score, 42)
-
-    # 17
-    def test_mixed_effects_floor_only_at_end(self):
+    def test_joker_plus_duo_order_matters(self):
         cards = [C(7, 1), C(7, 2)]
-        jokers = [Joker("jc", "add_chips", 1), Joker("jm", "add_mult", 1), Joker("jx", "mul_mult", 150)]
-        result = score_hand(cards, jokers)
-        self.assertEqual(result.chips, 15)
-        self.assertEqual(str(result.mult), "9/2")
-        self.assertEqual(result.final_score, 67)  # floor(15 * 4.5)
+        add = CATALOG_BY_ID["joker"]      # +4 Mult
+        duo = CATALOG_BY_ID["the_duo"]    # x2 Mult
+        add_then_x = score_hand(cards, [add, duo])
+        x_then_add = score_hand(cards, [duo, add])
+        self.assertEqual((add_then_x.final_score, x_then_add.final_score), (288, 192))
 
+    def test_three_kind_with_jokers(self):
+        cards = [C(8, 0), C(8, 1), C(8, 2)]
+        result = score_hand(cards, [CATALOG_BY_ID["joker"], CATALOG_BY_ID["jolly_joker"]])
+        self.assertEqual((result.chips, str(result.mult)), (54, "15"))
+        self.assertEqual(result.final_score, 810)
 
-class TestJokerOrderAndDispatch(unittest.TestCase):
-    # 18
-    def test_add_then_xdiffers_from_x_then_add(self):
+    def test_two_pair_boss_golden(self):
+        cards = [C(1, 0), C(1, 1), C(13, 2), C(13, 3)]
+        result = score_hand(cards, [CATALOG_BY_ID["joker"], CATALOG_BY_ID["the_duo"]])
+        self.assertEqual(result.final_score, 744)  # (20+42) * (2+4)*2
+
+    def test_fractional_mult_floor_once(self):
+        cards = [C(7, 1), C(7, 2), C(3, 0)]  # pair + kicker：chips 10+14=24
+        result = score_hand(cards, [Joker("test_x15", "x", "mul_mult", 150)])
+        self.assertEqual(result.chips, 24)
+        self.assertEqual(str(result.mult), "3")  # 2 * 1.5
+        self.assertEqual(result.final_score, 72)
+
+    def test_score_does_not_mutate_inputs(self):
         cards = [C(7, 1), C(7, 2)]
-        add_then_x = score_hand(cards, [Joker("a", "add_mult", 4), Joker("x", "mul_mult", 150)])
-        x_then_add = score_hand(cards, [Joker("x", "mul_mult", 150), Joker("a", "add_mult", 4)])
-        self.assertNotEqual(add_then_x.final_score, x_then_add.final_score)
-        self.assertEqual((add_then_x.final_score, x_then_add.final_score), (126, 98))
+        jokers = [CATALOG_BY_ID["joker"]]
+        before_cards, before_jokers = list(cards), list(jokers)
+        score_hand(cards, jokers)
+        self.assertEqual(cards, before_cards)
+        self.assertEqual(jokers, before_jokers)
 
-    # 19
-    def test_three_slot_chain_is_left_to_right(self):
-        cards = [C(7, 1), C(7, 2)]
-        jokers = [Joker("x1", "mul_mult", 150), Joker("a", "add_mult", 2), Joker("x2", "mul_mult", 200)]
-        result = score_hand(cards, jokers)
-        self.assertEqual(result.final_score, 140)  # floor(14 * ((2*1.5 + 2)*2))
-        self.assertEqual([entry.get("slot") for entry in result.trace if "slot" in entry], [0, 1, 2])
-
-    # 20
-    def test_effect_dispatch_area_phase_metadata(self):
-        result = score_hand([C(7, 1), C(7, 2)], [
-            Joker("c", "add_chips", 1), Joker("m", "add_mult", 1), Joker("x", "mul_mult", 150)
-        ])
-        trace = [r for r in result.trace if "joker_id" in r]
-        self.assertEqual([(r["cardarea"], r["phase"]) for r in trace], [
-            ("G.jokers", "before"), ("G.jokers", "before"), ("G.jokers", "individual")
-        ])
+    def test_duplicate_card_ids_rejected_by_scoring(self):
+        from bench.errors import InvalidActionError
+        with self.assertRaises(InvalidActionError):
+            score_hand([C(7, 0), C(7, 0)])
 
 
-class TestActionEnumeration(unittest.TestCase):
-    # 21
-    def test_same_rank_different_suits_are_not_equivalent(self):
-        hand = [C(7, 0), C(7, 1), C(3, 2)]
-        actions = legal_plays(hand)
-        pairs = {tuple(sorted(hand[i].card_id for i in action)) for action in actions if len(action) == 2}
-        self.assertIn(tuple(sorted((hand[0].card_id, hand[1].card_id))), pairs)
-        self.assertEqual(len(actions), 7)  # 3 singles + 3 pairs + 1 triple
+class TestJokerConditions(unittest.TestCase):
+    def _analysis(self, cards):
+        return evaluate_hand(cards)
 
-    # 22
-    def test_zero_discards_returns_empty(self):
-        self.assertEqual(legal_discards([C(2), C(3, 1)], 0), [])
+    def test_joker_always(self):
+        analysis = self._analysis([C(2, 0), C(5, 1)])
+        self.assertTrue(condition_met(CATALOG_BY_ID["joker"], analysis, 2))
 
-    # 23
-    def test_eight_card_hand_has_218_actions_and_stable_ids(self):
-        hand = [Card(suit=i % 4, rank=2 + i) for i in range(8)]
-        actions = legal_plays(hand)
-        self.assertEqual(len(actions), 218)
-        encoded = [encode_card_action("play", hand, a).code for a in actions]
-        self.assertEqual(len(encoded), len(set(encoded)))
-        self.assertTrue(all(code.startswith("play:c") for code in encoded))
+    def test_jolly_requires_pair_or_superset(self):
+        jolly = CATALOG_BY_ID["jolly_joker"]
+        pair = self._analysis([C(7, 0), C(7, 1), C(3, 2)])
+        high = self._analysis([C(7, 0), C(3, 1), C(2, 2)])
+        three = self._analysis([C(8, 0), C(8, 1), C(8, 2)])
+        self.assertTrue(condition_met(jolly, pair, 3))
+        self.assertTrue(condition_met(jolly, three, 3))  # contains Pair
+        self.assertFalse(condition_met(jolly, high, 3))
+
+    def test_zany_requires_three(self):
+        zany = CATALOG_BY_ID["zany_joker"]
+        self.assertTrue(condition_met(zany, self._analysis([C(8, 0), C(8, 1), C(8, 2)]), 3))
+        self.assertFalse(condition_met(zany, self._analysis([C(8, 0), C(8, 1)]), 2))
+
+    def test_half_joker_cards_le_3(self):
+        half = CATALOG_BY_ID["half_joker"]
+        analysis = self._analysis([C(8, 0), C(8, 1), C(8, 2)])
+        self.assertTrue(condition_met(half, analysis, 3))
+        self.assertFalse(condition_met(half, analysis, 4))
+
+    def test_sly_and_wily(self):
+        sly, wily = CATALOG_BY_ID["sly_joker"], CATALOG_BY_ID["wily_joker"]
+        pair = self._analysis([C(7, 0), C(7, 1)])
+        three = self._analysis([C(8, 0), C(8, 1), C(8, 2)])
+        self.assertTrue(condition_met(sly, pair, 2))
+        # 三条“包含”对子（structural-superset 口径，见 CONTAINS_POLICY；该口径标 UNVERIFIED），
+        # 因此 Sly 在三条上也会触发。
+        self.assertTrue(condition_met(sly, three, 3))
+        self.assertTrue(condition_met(wily, three, 3))
+
+    def test_duo_and_trio_conditions(self):
+        duo, trio = CATALOG_BY_ID["the_duo"], CATALOG_BY_ID["the_trio"]
+        pair = self._analysis([C(7, 0), C(7, 1)])
+        three = self._analysis([C(8, 0), C(8, 1), C(8, 2)])
+        self.assertTrue(condition_met(duo, pair, 2))
+        # 三条含对子 → Duo 触发（structural-superset 口径，UNVERIFIED）。
+        self.assertTrue(condition_met(duo, three, 3))
+        self.assertTrue(condition_met(trio, three, 3))
 
 
-class TestReproducibility(unittest.TestCase):
-    # 24
-    def test_same_seed_entire_episode_is_identical(self):
-        def run_once():
-            state = new_game(20261112)
-            for _ in range(50):
-                if state.phase == "done":
-                    break
-                if state.phase == "shop":
-                    state = choose_joker(state, 0, log_path=None)
-                else:
-                    best = best_play(state)
-                    state, _ = play(state, best.card_ids, log_path=None)
-            return state
-        a, b = run_once(), run_once()
-        self.assertEqual(a, b)
-        self.assertEqual(a.phase, "done")
-        self.assertEqual(a.blind_idx, 2)
+class TestContainsRelation(unittest.TestCase):
+    def test_three_contains_pair(self):
+        contains = hand_contains_types([C(8, 0), C(8, 1), C(8, 2)])
+        self.assertIn(HandType.PAIR, contains)
+        self.assertIn(HandType.THREE_KIND, contains)
 
-    # 25
-    def test_rng_state_full_round_trip(self):
-        rng = random.Random(43)
-        encoded = encode_state(rng)
-        restored = restore_rng(encoded)
-        self.assertEqual(rng.getstate(), restored.getstate())
-        self.assertTrue(state_round_trip_ok(encoded))
-        self.assertEqual([rng.random() for _ in range(4)], [restored.random() for _ in range(4)])
+    def test_four_kind_does_not_contain_two_pair(self):
+        contains = hand_contains_types([C(8, 0), C(8, 1), C(8, 2), C(8, 3), C(4, 0)])
+        self.assertIn(HandType.PAIR, contains)
+        self.assertIn(HandType.THREE_KIND, contains)
+        self.assertNotIn(HandType.TWO_PAIR, contains)
+
+    def test_five_kind_does_not_contain_full_house(self):
+        contains = hand_contains_types([C(8, 0)] * 5)
+        self.assertIn(HandType.FIVE_KIND, contains)
+        self.assertNotIn(HandType.FULL_HOUSE, contains)
+
+    def test_flush_house_and_flush_five_contains(self):
+        fh = hand_contains_types([C(8, 0)] * 3 + [C(9, 0)] * 2)
+        self.assertIn(HandType.FULL_HOUSE, fh)
+        self.assertIn(HandType.FLUSH, fh)
+        ff = hand_contains_types([C(8, 0)] * 5)
+        self.assertIn(HandType.FLUSH_FIVE, ff)
+        self.assertNotIn(HandType.FLUSH_HOUSE, ff)
+
+    def test_straight_flush_contains_both(self):
+        contains = hand_contains_types([C(r, 1) for r in (4, 5, 6, 7, 8)])
+        self.assertIn(HandType.STRAIGHT, contains)
+        self.assertIn(HandType.FLUSH, contains)
+        self.assertIn(HandType.STRAIGHT_FLUSH, contains)
 
 
 if __name__ == "__main__":

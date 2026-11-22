@@ -1,30 +1,26 @@
-"""BalatroEval W2 子集引擎包（custom subset engine package）。
+"""BalatroEval 规则引擎与训练环境（vanilla 1.0.1o 严格子集）。
 
-职责：实现一个确定性、可复现的简化 Balatro 风格基准环境，供 Agent 规划／评测
-实验使用；它只覆盖自定义子集（custom subset），不是原版（not vanilla）复刻。
+包内模块（自底向上）：
+- ``errors``：统一错误码与异常；
+- ``rules_version``：规则声明（唯一机器可读来源）、Ante 1 三盲注、牌型基础分表；
+- ``model``：Card / Joker / GameState 值对象与状态摘要；
+- ``cards``：标准 52 张牌组、稳定 ID 查找；
+- ``hand_eval``：牌型识别、计分牌筛选、contains 关系；
+- ``jokers``：8 个具名 vanilla Joker 与条件判定；
+- ``scoring``：等级 1 计分（基础 Chips×Mult → 计分牌 → Joker 槽位顺序）；
+- ``actions``：Action 值对象、合法动作枚举（218 出牌 + 218 弃牌）；
+- ``engine``：状态初始化与转移（play/discard/choose_joker）；
+- ``serialize``：完整快照/还原/state_hash；
+- ``observation``：Agent 可见 observation + 紧凑文本；
+- ``environment``：reset/observe/legal_actions/step/snapshot 的稳定环境接口；
+- ``tools``：Agent 工具层（统一错误码，MCP 与本地 runner 共用）；
+- ``oracle``：O1 精确局部 argmax / O2 近似 EV / O3 贪心参照；
+- ``logging``：旧 L0 日志写入器（LEGACY，未被新链路调用；新轨迹见 evaluation.trace）；
+- ``__main__``：``python -m bench {rules,demo,verify,ev}``。
 
-子模块职责一览：
-- model：Card／Joker／GameState 类型化领域模型与日志摘要导出。
-- cards：标准 52 张牌组构造、稳定卡牌 ID 查找与组合规范化。
-- rng：RNG state 的 JSON 序列化与无损还原（回放保真度的基础）。
-- actions：候选动作（candidate action）枚举与 CardAction 编码。
-- scoring：牌型判定与自定义子集计分公式，输出 trace 计分轨迹。
-- jokers：合成夹具（synthetic fixtures）Joker 目录，非原版具名 Joker。
-- engine：状态初始化与状态推进（play／discard／choose_joker）。
-- oracle：穷举参照（oracle）与 O1／O2／O3 参照策略，O2／O3 为近似。
-- logging：追加式 episode JSONL 日志（schema_version=1）。
-- __main__：命令行入口（demo／verify／ev）。
-
-边界／不变量：
-- 计分公式省略原版的 hand base chips，且 Joker 为合成夹具；因此本包分数是
-  自定义子集成绩，不得与 vanilla 原版分数直接比较，fidelity 结论仅限包内。
-- 随机性只能来自 rng 模块保存的完整随机数状态；禁止依赖全局随机源或时间。
-- 动作与日志以稳定卡牌 ID 为身份依据；手牌下标只作当次快照。
-- 包内导入保持单向、无环：底层为 model 与 rng，cards／actions／scoring／jokers／
-  logging 只依赖 model，engine 依赖上述模块，oracle／__main__ 依赖 engine
-  （分层与仓库根 AGENTS.md §3 的依赖分层表一致）。
-
-维护提示：改模型字段先看 model.py 与 state_summary 的消费者 logging.py；
-改计分公式先看 scoring.py 的模块说明与 tests/test_w2_rules.py；改动作枚举先看
-actions.py 的 218 上限断言；改状态推进先看 engine.py 与 test_same_seed_episode。
+边界（不得越线）：
+- 规则实现等级：**IMPLEMENTED**；与真游戏一致性：**NOT_VERIFIED**（A2 0 行）。
+- 明确排除：金钱/商店经济、Boss 效果、消耗品、Voucher、补充包、卡牌增强/蜡封/版本、
+  多牌组/多赌注、Tag/跳盲、Endless、手牌等级>1、重触发。
+- 随机性只来自 ``GameState.rng_state``；不承诺与真游戏同种子同局面。
 """

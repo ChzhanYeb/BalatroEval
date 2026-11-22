@@ -25,3 +25,11 @@ bridge/mcp-overlay.yml
 # Raw DSH session evidence
 evidence/W1/session-*.json
 evidence/W1/session-*.v4.jsonl.zstd
+
+# Local run artifacts (experiments / tests / benchmarks)
+runs/_test_tmp/
+runs/_bench/
+runs/_probe*
+runs/probe_dir/
+tmp_probe.txt
+tmp/

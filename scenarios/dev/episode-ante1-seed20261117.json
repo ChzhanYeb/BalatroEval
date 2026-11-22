@@ -1,0 +1,26 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-episode-ante1-red-seed20261117",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 20261117,
+  "origin": "synthetic_dev",
+  "decision_type": "episode",
+  "goal": {"type": "clear_ante1", "target": null},
+  "initial_state": {
+    "hand_ids": null,
+    "joker_ids": [],
+    "blind_idx": 0,
+    "total_score": null,
+    "hands_left": null,
+    "discards_left": null,
+    "target": null
+  },
+  "constraints": {"max_steps": 120, "allowed_action_kinds": null},
+  "extensions": [],
+  "boss_blind": {"name": "Boss Blind (effect disabled)", "effect": null},
+  "metadata": {
+    "description": "Full Ante 1 episode on Red Deck / White Stake, seeded shuffle. Boss effect disabled by subset policy.",
+    "tags": ["dev", "episode", "ante1"],
+    "boss_effect": "NOT_IMPLEMENTED"
+  }
+}

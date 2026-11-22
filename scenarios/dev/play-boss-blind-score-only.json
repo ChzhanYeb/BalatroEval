@@ -1,0 +1,25 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-play-boss-blind-score-only",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 45,
+  "origin": "synthetic_dev",
+  "decision_type": "play",
+  "goal": {"type": "reach_score", "target": 600},
+  "initial_state": {
+    "hand_ids": ["c1s", "c1h", "c13d", "c13c", "c12h", "c12d", "c2s", "c3h"],
+    "joker_ids": ["joker", "the_duo"],
+    "blind_idx": 2,
+    "total_score": 0,
+    "hands_left": 4,
+    "discards_left": 4,
+    "target": 600
+  },
+  "constraints": {"max_steps": 1, "allowed_action_kinds": ["play"]},
+  "extensions": [],
+  "boss_blind": {"name": "Boss Blind (effect disabled)", "effect": null},
+  "metadata": {
+    "description": "Boss blind score-only decision point (600). Boss effect intentionally disabled and declared; not valid alignment evidence.",
+    "tags": ["dev", "boss_score_only"]
+  }
+}

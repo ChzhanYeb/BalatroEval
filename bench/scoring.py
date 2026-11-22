@@ -1,162 +1,150 @@
-"""Pure hand classification and scoring for the explicitly simplified v1 ruleset.
+"""等级 1 的 vanilla 计分：基础 Chips×Mult → 计分牌 rank chips → Joker 槽位顺序。
 
-This formula is intentionally the user's custom subset formula: chips are the sum of the
-played cards' rank chips plus add_chips effects; it omits vanilla Balatro hand-base Chips.
-That means its output is not directly comparable with vanilla scores until the ruleset is
-revised to include real poker-hand base chips and real Joker semantics.
+计分公式（``docs/balatro/rules.md`` §4，和 ``docs/balatro/engine-gap.md`` §2）：
+
+    chips = 牌型基础 Chips + Σ(参与计分牌的 rank chips) + Σ(+Chips 效果)
+    mult  = 牌型基础 Mult  × Π(×Mult 效果) + Σ(+Mult 效果)   # 按槽位顺序逐项应用
+    score = floor(chips × mult)                              # 末尾一次取整（候选口径）
+
+顺序细节：
+1. 牌型基础分先进入累加器（trace 第一条）；
+2. 只对 ``HandAnalysis.scoring_cards`` 加 rank chips（高牌只加 1 张等）；
+3. 按 Joker 槽位从左到右逐项应用 ``+Chips`` / ``+Mult`` / ``×Mult``；条件不满足时
+   记录一条 ``triggered=False`` 的 trace 但不改变分数；
+4. 全部中间值用 ``Fraction`` 保留，最后只 floor 一次。
+
+未验证（⏳，不得写成已验证）：
+- Wiki 未明写最终取整方式与中间小数处理；本节采用 ``floor`` 一次作为**候选口径**；
+- Joker 触发时机与计分牌筛选的交互未做真游戏实测（A2 0 行）。
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
-from enum import Enum
 from fractions import Fraction
-from collections import Counter
 from math import floor
 from typing import Sequence
+
+from .hand_eval import HandAnalysis, HandType, evaluate_hand
+from .jokers import condition_met
 from .model import Card, Joker
-
-
-class HandType(str, Enum):
-    STRAIGHT_FLUSH = "straight_flush"
-    FOUR_KIND = "four_kind"
-    FULL_HOUSE = "full_house"
-    FLUSH = "flush"
-    STRAIGHT = "straight"
-    THREE_KIND = "three_kind"
-    TWO_PAIR = "two_pair"
-    PAIR = "pair"
-    HIGH_CARD = "high_card"
-
-
-# User-defined simplified multipliers; these are not vanilla Balatro level-1 multipliers.
-HAND_MULT: dict[HandType, int] = {
-    HandType.STRAIGHT_FLUSH: 12,
-    HandType.FOUR_KIND: 10,
-    HandType.FULL_HOUSE: 8,
-    HandType.FLUSH: 6,
-    HandType.STRAIGHT: 5,
-    HandType.THREE_KIND: 4,
-    HandType.TWO_PAIR: 3,
-    HandType.PAIR: 2,
-    HandType.HIGH_CARD: 1,
-}
-
-PHASE_BY_KIND = {
-    "add_chips": ("G.jokers", "before"),
-    "add_mult": ("G.jokers", "before"),
-    "mul_mult": ("G.jokers", "individual"),
-}
-
-
-def _apply_add_chips(chips: int, mult: Fraction, value: int) -> tuple[int, Fraction]:
-    return chips + value, mult
-
-
-def _apply_add_mult(chips: int, mult: Fraction, value: int) -> tuple[int, Fraction]:
-    return chips, mult + value
-
-
-def _apply_mul_mult(chips: int, mult: Fraction, value: int) -> tuple[int, Fraction]:
-    return chips, mult * Fraction(value, 100)
-
-
-# Dispatcher key includes card area AND phase; adding an effect requires an explicit route.
-EFFECT_DISPATCH = {
-    ("G.jokers", "before", "add_chips"): _apply_add_chips,
-    ("G.jokers", "before", "add_mult"): _apply_add_mult,
-    ("G.jokers", "individual", "mul_mult"): _apply_mul_mult,
-}
 
 
 @dataclass(frozen=True, slots=True)
 class ScoreResult:
-    hand_type: HandType
+    """一次出牌的完整计分结果（不可变）。
+
+    Attributes:
+        analysis: 牌型分析（牌型、基础分、计分牌、contains）。
+        chips: 最终 Chips（整数；本子集所有 +Chips 均为整数）。
+        mult: 最终 Mult（``Fraction``，保留精确小数）。
+        final_score: ``floor(chips × mult)``。
+        trace: 计分过程事件元组（每条为 JSON 友好 dict）。
+        scoring_card_ids: 参与计分的稳定卡牌 ID（按输入顺序）。
+    """
+
+    analysis: HandAnalysis
     chips: int
     mult: Fraction
     final_score: int
     trace: tuple[dict, ...]
+    scoring_card_ids: tuple[str, ...]
+
+    @property
+    def hand_type(self) -> HandType:
+        """便捷访问牌型（兼容旧调用方 ``result.hand_type``）。"""
+        return self.analysis.hand_type
 
     def to_dict(self) -> dict:
+        """导出 JSON 友好 dict；倍率同时给精确分数字符串与浮点展示值。
+
+        ``mult`` 字段形如 ``"9/2"``，下游要数值请用 ``mult_float`` 或自行解析，
+        不要直接 ``float("9/2")``。
+        """
         return {
-            "hand_type": self.hand_type.value,
+            "hand_type": self.analysis.hand_type.value,
+            "hand_type_name": self.analysis.hand_type.display_name,
+            "base_chips": self.analysis.base_chips,
+            "base_mult": self.analysis.base_mult,
+            "scoring_card_ids": list(self.scoring_card_ids),
             "chips": self.chips,
             "mult": f"{self.mult.numerator}/{self.mult.denominator}",
             "mult_float": float(self.mult),
             "final_score": self.final_score,
             "trace": list(self.trace),
+            "analysis": self.analysis.to_dict(),
         }
 
 
-def _is_straight(ranks: set[int]) -> bool:
-    if len(ranks) != 5:
-        return False
-    if ranks == {1, 2, 3, 4, 5}:  # wheel: A-2-3-4-5
-        return True
-    if ranks == {1, 10, 11, 12, 13}:  # Broadway: 10-J-Q-K-A
-        return True
-    ordered = sorted(ranks)
-    return ordered[-1] - ordered[0] == 4 and all(ordered[i] + 1 == ordered[i + 1] for i in range(4))
+def _apply_effect(chips: int, mult: Fraction, joker: Joker) -> tuple[int, Fraction]:
+    """应用单个 Joker 效果；返回新的 ``(chips, mult)``。
 
-
-def classify_hand(cards: Sequence[Card]) -> HandType:
-    """Classify 1..5 selected cards using the documented high-to-low precedence."""
-    if not 1 <= len(cards) <= 5:
-        raise ValueError("a played hand must contain 1..5 cards")
-    rank_counts = Counter(c.rank for c in cards)
-    counts = sorted(rank_counts.values(), reverse=True)
-    is_flush = len(cards) == 5 and len({c.suit for c in cards}) == 1
-    is_straight = len(cards) == 5 and _is_straight(set(rank_counts))
-
-    # The order is deliberate: SF must precede flush; four-kind precedes full-house.
-    if is_straight and is_flush:
-        return HandType.STRAIGHT_FLUSH
-    if counts[0] == 4:
-        return HandType.FOUR_KIND
-    if len(cards) == 5 and counts == [3, 2]:
-        return HandType.FULL_HOUSE
-    if is_flush:
-        return HandType.FLUSH
-    if is_straight:
-        return HandType.STRAIGHT
-    if counts[0] == 3:
-        return HandType.THREE_KIND
-    if counts.count(2) >= 2:
-        return HandType.TWO_PAIR
-    if counts[0] == 2:
-        return HandType.PAIR
-    return HandType.HIGH_CARD
+    Raises:
+        ValueError: 未支持的效果类型（防御性；目录校验已拦截）。
+    """
+    if joker.kind == "add_chips":
+        return chips + joker.value, mult
+    if joker.kind == "add_mult":
+        return chips, mult + joker.value
+    if joker.kind == "mul_mult":
+        return chips, mult * joker.multiplier
+    raise ValueError(f"unsupported joker kind: {joker.kind!r}")
 
 
 def score_hand(cards: Sequence[Card], jokers: Sequence[Joker] = ()) -> ScoreResult:
-    """Score one hand. Joker effects are applied in stable slot order, using exact fractions.
+    """计算一次出牌的得分并返回完整中间过程。
 
-    The phase/area tuple is preserved in trace metadata. To satisfy the subset's explicit
-    slot-order rule, effects are applied in slot order (not globally batched by phase). This
-    is a custom deterministic dispatch contract; it is not a substitute for vanilla's full
-    SMODS event pipeline.
+    Args:
+        cards: 本次打出的 1–5 张牌（稳定 ID 必须唯一；顺序保留玩家选择顺序）。
+        jokers: 按槽位顺序排列的 Joker 序列（左→右）。
+
+    Returns:
+        ScoreResult；``final_score`` 为本子集的取整后得分。
+
+    Raises:
+        InvalidActionError: 牌数越界或重复牌（来自 ``evaluate_hand``）。
+        ValueError: 出现未注册的 Joker 效果（防御性，不应由合法输入触发）。
+
+    确定性：纯函数；不修改入参、不读全局状态、不消耗随机数。
     """
-    if len({c.card_id for c in cards}) != len(cards):
-        raise ValueError("played hand contains duplicate card ids")
-    hand_type = classify_hand(cards)
-    chips = sum(card.chips for card in cards)
-    mult = Fraction(HAND_MULT[hand_type], 1)
-    trace: list[dict] = [{"cardarea": "G.play", "phase": "individual", "effect": "rank_chips", "delta": chips}]
+    analysis = evaluate_hand(cards)
+    trace: list[dict] = [
+        {
+            "phase": "hand_base",
+            "hand_type": analysis.hand_type.value,
+            "hand_type_name": analysis.hand_type.display_name,
+            "base_chips": analysis.base_chips,
+            "base_mult": analysis.base_mult,
+            "is_royal_flush": analysis.is_royal_flush,
+        }
+    ]
+
+    chips = analysis.base_chips
+    mult = Fraction(analysis.base_mult, 1)
+
+    card_chips = sum(card.chips for card in analysis.scoring_cards)
+    chips += card_chips
+    trace.append({
+        "phase": "scoring_cards",
+        "card_ids": [c.card_id for c in analysis.scoring_cards],
+        "cards_chips": card_chips,
+        "chips_after": chips,
+        "mult_after": f"{mult.numerator}/{mult.denominator}",
+    })
 
     for slot, joker in enumerate(jokers):
-        area, phase = PHASE_BY_KIND[joker.kind]
+        triggered = condition_met(joker, analysis, played_card_count=len(cards))
         before_chips, before_mult = chips, mult
-        dispatcher_key = (area, phase, joker.kind)
-        try:
-            effect_handler = EFFECT_DISPATCH[dispatcher_key]
-        except KeyError as exc:
-            raise ValueError(f"no effect dispatcher registered for {dispatcher_key}") from exc
-        chips, mult = effect_handler(chips, mult, joker.value)
+        if triggered:
+            chips, mult = _apply_effect(chips, mult, joker)
         trace.append({
+            "phase": "joker",
             "slot": slot,
             "joker_id": joker.jid,
-            "cardarea": area,
-            "phase": phase,
+            "joker_name": joker.name,
             "kind": joker.kind,
             "value": joker.value,
+            "condition": joker.condition,
+            "triggered": triggered,
             "chips_before": before_chips,
             "chips_after": chips,
             "mult_before": f"{before_mult.numerator}/{before_mult.denominator}",
@@ -164,5 +152,19 @@ def score_hand(cards: Sequence[Card], jokers: Sequence[Joker] = ()) -> ScoreResu
         })
 
     final_score = floor(Fraction(chips, 1) * mult)
-    trace.append({"phase": "final_scoring", "expression": "floor(chips * mult)", "final_score": final_score})
-    return ScoreResult(hand_type, chips, mult, final_score, tuple(trace))
+    trace.append({
+        "phase": "final_score",
+        "expression": "floor(chips * mult)",
+        "chips": chips,
+        "mult": f"{mult.numerator}/{mult.denominator}",
+        "final_score": final_score,
+        "rounding_status": "CANDIDATE_FLOOR_UNVERIFIED",
+    })
+    return ScoreResult(
+        analysis=analysis,
+        chips=chips,
+        mult=mult,
+        final_score=final_score,
+        trace=tuple(trace),
+        scoring_card_ids=tuple(c.card_id for c in analysis.scoring_cards),
+    )

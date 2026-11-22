@@ -1,51 +1,55 @@
-"""BalatroEval v1 自定义子集规则的类型化领域模型。
+"""BalatroEval 规则子集 v1 的类型化领域模型。
 
-职责：定义不可变的 Card / Joker（小丑牌）值对象与可变的单局状态 GameState，
-并提供供日志层（bench.logging）复用的 dict 导出辅助函数。
+职责：定义不可变 ``Card`` / ``Joker`` 值对象与可变但**按值传递**的 ``GameState``，
+并提供 JSON 序列化辅助函数。
 
-边界／不变量：
-- 这里描述的是自定义子集（custom subset），不是原版（not vanilla）复刻：
-  卡牌没有增强、版本、蜡封等属性，计分口径见 bench.scoring 的公式说明。
-- Card / Joker 为 frozen+slots 值对象，构造期由 __post_init__ 校验不变量。
-- GameState 是可变对象；一次 state transition 由 bench.engine 在 deepcopy 副本上
-  完成，调用方持有的旧状态不会被原地改写。
-- rng_state 保存完整随机数状态而非 seed，原因见 GameState 类说明。
+不变量：
+- ``Card`` 是标准 52 张牌中的一张（无增强/蜡封/版本），以 ``(suit, rank)`` 与稳定
+  ``card_id`` 为身份；``rank=1`` 表示 A，仅用于顺子排序，计分筹码另有口径。
+- ``Joker`` 是 vanilla 具名 Joker 的**规则参数**（不是可变的游戏对象）；8 个目录条目
+  在 ``bench/jokers.py`` 中集中定义。
+- ``GameState`` 是可变 dataclass，但所有状态转移函数都遵守“先在副本上改、再返回副本”，
+  调用方持有的旧状态不会被就地修改。
+- 随机性只来自 ``rng_state``（完整 ``random.Random.getstate()`` 的 JSON 编码）。
+  禁止使用全局随机源、时间或哈希随机化。
 
-维护提示：改字段、校验或导出键之前先读 tests/test_w2_rules.py 与
-bench/logging.py（state_summary 的消费者），并同步 bench/engine.py 的构造点。
+与旧 L0 模型的差异（见 docs/implementation/rules-implementation.md）：
+- 增加 ``blind_kind`` / ``boss_effect`` / ``joker_slots`` / ``ante`` 字段；
+- ``Joker`` 增加 ``condition`` / ``rarity``，支持 vanilla 触发条件；
+- 旧的 3 槽位硬编码与自定义 ``HAND_MULT`` 已删除（规则表在 ``rules_version`` 与
+  ``hand_eval``）。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .rules_version import VANILLA_SUBSET_V1
+
 SUIT_NAMES = ("spades", "hearts", "diamonds", "clubs")
 SUIT_CODES = ("s", "h", "d", "c")
 RANK_NAMES = {1: "A", 11: "J", 12: "Q", 13: "K"}
+
 Phase = Literal["play", "shop", "done"]
+BlindKind = Literal["small", "big", "boss"]
+Outcome = Literal["win", "loss"]
 JokerKind = Literal["add_chips", "add_mult", "mul_mult"]
+JokerCondition = Literal["always", "contains_pair", "contains_three", "cards_le_3"]
 
 
 @dataclass(frozen=True, slots=True, order=True)
 class Card:
-    """一张无修饰的标准扑克牌（不可变值对象，可哈希、可排序）。
+    """一张无修饰的标准扑克牌（不可变值对象）。
 
-    编码约定：suit 0..3 依次为黑桃／红心／方块／梅花，与 SUIT_CODES 下标对齐；
-    rank 1..13 中 1 表示 A、11/12/13 表示 J/Q/K、2..10 为点数本身。
-    rank 是「排序与牌型判断」用的序数（A 记 1，以便组成 A-2-3-4-5 顺子），
-    而 chips 是「计分」用的筹码值（A 记 11），两套口径不可混用。
+    Args:
+        suit: 0..3，依次为黑桃/红心/方块/梅花（与 ``SUIT_CODES`` 下标对齐）。
+        rank: 1..13；1=A、11/12/13=J/Q/K、2..10 为点数本身。
 
-    card_id 是稳定卡牌 ID（形如 c7h），在标准 52 张牌组与整个 episode 内唯一，
-    用于动作回放、候选动作去重与日志身份；label 只是给人看的短标签（如 7h），
-    不参与任何身份比较。
-
-    构造期不变量：suit 必须 0..3，rank 必须 1..13，越界抛 ValueError；
-    frozen=True 保证实例创建后不可再赋值。
+    Raises:
+        ValueError: suit/rank 越界。
     """
 
-    # suit：0 黑桃、1 红心、2 方块、3 梅花，数值只用于编码与排序。
     suit: int
-    # rank：1=A、2..10 为点数、11=J、12=Q、13=K，用于牌型判断与排序。
     rank: int
 
     def __post_init__(self) -> None:
@@ -56,161 +60,247 @@ class Card:
 
     @property
     def card_id(self) -> str:
-        """稳定卡牌 ID：形如 c{rank}{suit_code}（黑桃 A 为 c1s）。
-
-        标准牌组内唯一、跨 episode 不变；动作记录、回放与去重都以它为准。
-        返回：纯 ASCII 字符串。副作用：无。
-        """
+        """稳定卡牌 ID（如 ``c7h``：rank=7、suit=hearts）。标准牌组内唯一。"""
         return f"c{self.rank}{SUIT_CODES[self.suit]}"
 
     @property
     def label(self) -> str:
-        """人类可读的短标签，如 As、10h、Ks；仅用于展示与日志阅读。
-
-        返回：由 RANK_NAMES 与 SUIT_CODES 拼出的字符串。
-        注意：展示层不要用 label 做身份判断——稳定身份应使用 card_id。
-        副作用：无。
-        """
+        """人类可读短标签（如 ``7h``、``10s``）；仅展示用，不作身份判断。"""
         rank = RANK_NAMES.get(self.rank, str(self.rank))
         return f"{rank}{SUIT_CODES[self.suit]}"
 
     @property
-    def chips(self) -> int:
-        """该牌按自定义子集公式贡献的筹码（单牌 rank chips）。
+    def rank_label(self) -> str:
+        """点数标签：A/J/Q/K/2..10。"""
+        return RANK_NAMES.get(self.rank, str(self.rank))
 
-        规则：A 记 11、J／Q／K 记 10、其余取点数本身（与原版单牌筹码口径一致）。
-        返回：非负整数。副作用：无。
-        注意：这里只算单牌筹码；原版（vanilla）按牌型等级给出的 hand base chips
-        在本子集中被显式省略（见 bench.scoring 模块说明），因此总分不可与原版直接比较。
-        """
+    @property
+    def suit_name(self) -> str:
+        """花色英文名（spades/hearts/diamonds/clubs）。"""
+        return SUIT_NAMES[self.suit]
+
+    @property
+    def chips(self) -> int:
+        """单牌 rank chips：A=11、J/Q/K=10、其余=点数；与 vanilla 口径一致。"""
         if self.rank == 1:
             return 11
         if self.rank >= 11:
             return 10
         return self.rank
 
+    def to_dict(self) -> dict:
+        """导出 JSON dict：``id`` / ``suit`` / ``rank`` / ``label``。"""
+        return {"id": self.card_id, "suit": self.suit, "rank": self.rank, "label": self.label}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Card":
+        """从 ``to_dict`` 产物还原；接受 id 或 (suit, rank)。"""
+        if "id" in data:
+            return card_from_id(str(data["id"]))
+        return cls(suit=int(data["suit"]), rank=int(data["rank"]))
+
+
+def card_from_id(card_id: str) -> Card:
+    """把稳定卡牌 ID（如 ``c7h``）解析成 ``Card``。
+
+    Raises:
+        ValueError: 格式非法（必须以 c 开头、两位 rank 或一位、合法花色码）。
+
+    说明：rank 支持 ``c10s`` 这类两位数字；解析顺序为“去掉首尾后取中间数字 + 末位花色”。
+    """
+    if not isinstance(card_id, str) or len(card_id) < 3 or card_id[0] != "c":
+        raise ValueError(f"invalid card id: {card_id!r}")
+    suit_code, rank_text = card_id[-1], card_id[1:-1]
+    if suit_code not in SUIT_CODES:
+        raise ValueError(f"invalid card id suit: {card_id!r}")
+    if not rank_text.isdigit():
+        raise ValueError(f"invalid card id rank: {card_id!r}")
+    rank = int(rank_text)
+    if rank not in range(1, 14):
+        raise ValueError(f"invalid card id rank: {card_id!r}")
+    return Card(suit=SUIT_CODES.index(suit_code), rank=rank)
+
 
 @dataclass(frozen=True, slots=True)
 class Joker:
-    """一枚合成夹具 Joker（fixture），不是原版具名 Joker。
+    """一个具名 vanilla Joker 的规则参数（不可变）。
 
-    字段：jid 为稳定 Joker ID（如 jx_mul_mult_150）；kind 决定效果类别；
-    value 的语义随 kind 变化——add_chips 为筹码增量、add_mult 为倍率增量、
-    mul_mult 为「百分之一」整数（150 表示 x1.5，100 表示 x1.0）；name 仅展示用。
+    Args:
+        jid: 稳定 ID（如 ``jolly_joker``）。
+        name: 展示名（如 ``Jolly Joker``）。
+        kind: 效果类型，``add_chips`` / ``add_mult`` / ``mul_mult``。
+        value: add_* 为整数增量；``mul_mult`` 为**百分之一**整数（200 表示 ×2、300 表示 ×3）。
+        condition: 触发条件，见 ``JokerCondition``；``always`` 表示恒定生效。
+        rarity: ``Common`` / ``Uncommon`` / ``Rare`` / ``Legendary``。
+        buy_price: 商店基础价（仅声明，子集不实现金钱，不参与规则计算）。
 
-    构造期不变量：kind 必须是三种之一；mul_mult 的 value 必须为正的百分之一；
-    加法类效果的 value 不得为负（v1 子集只支持非负加法效果）。违反时抛
-    ValueError，错误消息文本属于对外契约，勿改。
-
-    fidelity 提醒：这些是合成夹具（synthetic fixtures），只模拟无条件瞬时效果；
-    不得据此宣称原版分数保真度。
+    Raises:
+        ValueError: kind/condition 非法，或 value 与其单位不匹配。
     """
 
     jid: str
+    name: str
     kind: JokerKind
-    # value：chips、可加 mult，或百分之一整数倍的 x-mult（150 == x1.5）。
     value: int
-    name: str = ""
+    condition: JokerCondition = "always"
+    rarity: str = ""
+    buy_price: int = 0
 
     def __post_init__(self) -> None:
         if self.kind not in ("add_chips", "add_mult", "mul_mult"):
             raise ValueError(f"unsupported joker kind: {self.kind}")
-        if self.kind == "mul_mult" and self.value <= 0:
-            raise ValueError("mul_mult value must be positive hundredths, e.g. 150 for x1.5")
-        if self.kind != "mul_mult" and self.value < 0:
-            raise ValueError("this v1 subset only supports nonnegative additive effects")
+        if self.condition not in ("always", "contains_pair", "contains_three", "cards_le_3"):
+            raise ValueError(f"unsupported joker condition: {self.condition}")
+        if self.kind == "mul_mult":
+            if self.value <= 0:
+                raise ValueError("mul_mult value must be positive hundredths, e.g. 200 for x2")
+        elif self.value < 0:
+            raise ValueError("additive joker value must be nonnegative in this subset")
+
+    @property
+    def multiplier(self):
+        """``mul_mult`` 的精确倍率（Fraction）；非乘法效果调用会抛 ValueError。"""
+        if self.kind != "mul_mult":
+            raise ValueError("multiplier is only defined for mul_mult jokers")
+        from fractions import Fraction
+
+        return Fraction(self.value, 100)
+
+    def to_dict(self) -> dict:
+        """导出 JSON dict（含 units 字段说明 value 单位，避免下游误读）。"""
+        return {
+            "jid": self.jid,
+            "name": self.name,
+            "kind": self.kind,
+            "value": self.value,
+            "value_unit": "hundredths_of_mult" if self.kind == "mul_mult" else "chips_or_mult",
+            "condition": self.condition,
+            "rarity": self.rarity,
+            "buy_price": self.buy_price,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Joker":
+        """从 ``to_dict`` 产物还原（忽略 value_unit 等展示字段）。"""
+        return cls(
+            jid=str(data["jid"]),
+            name=str(data.get("name", data["jid"])),
+            kind=data["kind"],
+            value=int(data["value"]),
+            condition=data.get("condition", "always"),
+            rarity=str(data.get("rarity", "")),
+            buy_price=int(data.get("buy_price", 0)),
+        )
 
 
 @dataclass
 class GameState:
-    """一局游戏从开局到结束的完整可变状态。
+    """Ante 1 子集一局的完整状态。
 
-    可变性约定：本类不做防御性拷贝；bench.engine 的 play／discard／choose_joker
-    先在 deepcopy 副本上推进再返回，因此调用方持有的旧状态保持不变。绕过 engine
-    直接就地修改会跳过日志与 phase 结算，属于未受支持用法。
+    字段分三组：
+    - 规则身份：``rules_version`` / ``ante`` / ``blind_idx`` / ``blind_kind`` /
+      ``target`` / ``joker_slots``；
+    - 资源与进度：``total_score`` / ``hands_left`` / ``discards_left`` / ``steps`` /
+      ``phase`` / ``outcome``；
+    - 牌与 Joker：``hand`` / ``deck`` / ``discard_pile`` / ``jokers`` / ``shop_options``；
+    - 随机性：``seed`` / ``rng_state``。
 
-    关键字段：phase 为 play（出牌／弃牌）→ shop（商店，三关之间购买 Joker）→
-    done（win／loss 终局）；rng_state 存 random.Random.getstate() 的完整 JSON 编码，
-    而不是 seed——牌堆洗牌与 shop 抽样已经消费了随机流，仅凭 seed 无法复现
-    「当前」随机数状态；seed 仍保留，用于统计分组与 oracle 派生采样种子。
-    discard_pile 为弃牌堆，抽牌堆耗尽时由 engine 洗回 deck；shop_options 为当前
-    商店候选；outcome 与 steps 为终局标记与已执行动作数。
+    可变性：本类不做防御性拷贝；``bench.engine`` 的状态转移在 deepcopy 副本上完成。
+    直接就地修改会跳过校验与转移语义，属于未受支持用法。
 
-    构造期不变量（__post_init__）：blind_idx 0..2；target>0；Joker 不超过 3 个；
-    hands_left／discards_left 非负；违反抛 ValueError。
+    Raises:
+        ValueError: 结构不合法（blind_idx/资源/槽位/phase/outcome 等）。
     """
 
-    blind_idx: int  # 0..2，依次对应 bench.engine.TARGETS 的三个盲注
-    target: int  # 当前盲注目标分
-    total_score: int  # 当前盲注累计分，进入下一盲注时归零
-    hand: list[Card]  # 手牌，列表顺序即展示顺序，动作下标快照基于它
-    deck: list[Card]  # 抽牌堆，队首（下标 0）为下一张要抽的牌
-    jokers: list[Joker]  # 已拥有 Joker，槽位顺序决定计分顺序（顺序敏感）
-    hands_left: int  # 本盲注剩余出牌次数
-    discards_left: int  # 本盲注剩余弃牌次数
-    phase: Phase  # play / shop / done
-    rng_state: str  # 完整 getstate() 的 JSON 文本，不是 seed，见类 docstring
-    seed: int  # 开局种子，仅用于记录；复现当前随机流请用 rng_state
-    # 弃牌堆：已打出的牌与主动弃掉的牌，抽牌堆耗尽时由 engine 洗回 deck。
+    # --- 规则身份 ---
+    rules_version: str = VANILLA_SUBSET_V1.rules_version
+    ante: int = 1
+    blind_idx: int = 0
+    blind_kind: BlindKind = "small"
+    boss_effect: str | None = None
+    target: int = 300
+    joker_slots: int = 5
+    hand_size: int = 8
+    shop_enabled: bool = False
+    # --- 进度 ---
+    total_score: int = 0
+    hands_left: int = 4
+    discards_left: int = 4
+    steps: int = 0
+    phase: Phase = "play"
+    outcome: Outcome | None = None
+    # --- 牌与 Joker ---
+    hand: list[Card] = field(default_factory=list)
+    deck: list[Card] = field(default_factory=list)
     discard_pile: list[Card] = field(default_factory=list)
-    # 当前商店候选 Joker；离开 shop 阶段时清空。
+    jokers: list[Joker] = field(default_factory=list)
     shop_options: list[Joker] = field(default_factory=list)
-    outcome: Literal["win", "loss"] | None = None  # 终局结果，未结束为 None
-    steps: int = 0  # 已执行的动作数，用于日志与 oracle 采样种子的派生
+    # --- 随机性 ---
+    seed: int = 0
+    rng_state: str = ""
 
     def __post_init__(self) -> None:
         if self.blind_idx not in range(3):
             raise ValueError("blind_idx must be 0..2")
+        if self.blind_kind not in ("small", "big", "boss"):
+            raise ValueError(f"invalid blind_kind: {self.blind_kind!r}")
         if self.target <= 0:
             raise ValueError("target must be positive")
-        if len(self.jokers) > 3:
-            raise ValueError("at most 3 jokers are allowed")
+        if self.joker_slots < 0:
+            raise ValueError("joker_slots cannot be negative")
+        if self.hand_size < 0:
+            raise ValueError("hand_size cannot be negative")
+        if len(self.jokers) > self.joker_slots:
+            raise ValueError("jokers exceed joker_slots")
         if self.hands_left < 0 or self.discards_left < 0:
             raise ValueError("hands_left and discards_left cannot be negative")
+        if self.phase not in ("play", "shop", "done"):
+            raise ValueError(f"invalid phase: {self.phase!r}")
+        if self.outcome not in (None, "win", "loss"):
+            raise ValueError(f"invalid outcome: {self.outcome!r}")
+        if self.total_score < 0:
+            raise ValueError("total_score cannot be negative")
+
+    @property
+    def deck_total(self) -> int:
+        """手牌 + 抽牌堆 + 弃牌堆的总张数（标准牌组应恒为 52）。"""
+        return len(self.hand) + len(self.deck) + len(self.discard_pile)
 
 
-def card_to_dict(card: Card) -> dict[str, int | str]:
-    """把一张牌导出为 JSON 友好的 dict（id／suit／rank）。
-
-    同时给出稳定卡牌 ID 与数值编码，便于日志审计与人工排查；派生值
-    （label／chips）不落库，避免编码规则调整后日志与代码失同步。
-    返回：可 json.dumps 的 dict。异常：无。副作用：无。
-    """
-    return {"id": card.card_id, "suit": card.suit, "rank": card.rank}
+def card_to_dict(card: Card) -> dict:
+    """兼容旧日志消费者：等价于 ``card.to_dict()``。"""
+    return card.to_dict()
 
 
-def joker_to_dict(joker: Joker) -> dict[str, int | str]:
-    """把一枚 Joker 导出为 JSON 友好的 dict（jid／kind／value／name）。
-
-    消费方必须按 kind 解释 value：mul_mult 的 150 表示 x1.5，不能当作
-    倍率数值直接运算。返回：可 json.dumps 的 dict。异常／副作用：无。
-    """
-    return {"jid": joker.jid, "kind": joker.kind, "value": joker.value, "name": joker.name}
+def joker_to_dict(joker: Joker) -> dict:
+    """兼容旧日志消费者：等价于 ``joker.to_dict()``。"""
+    return joker.to_dict()
 
 
 def state_summary(state: GameState) -> dict:
-    """导出写日志用的状态摘要（bench.logging 写入 state_before／state_after）。
+    """导出紧凑状态摘要（供 trace / 旧日志消费者使用）。
 
-    设计取舍：hand／jokers／shop_options 给完整内容（它们是决策对象），
-    deck／discard_pile 只给计数以控制 JSONL 体积；需要核对具体牌序时，
-    应结合动作流与 rng_state 做回放，而不是依赖摘要本身。
-    返回：可 JSON 序列化的 dict，其键集合即日志 schema（schema_version=1）。
-    异常：无。副作用：无，不修改 state；新增 GameState 字段时要同步这里。
+    设计取舍：``hand`` / ``jokers`` / ``shop_options`` 给完整内容（决策对象），
+    ``deck`` / ``discard_pile`` 只给计数以控制体积；完整牌序用
+    ``bench.serialize.state_to_dict``。
     """
     return {
+        "rules_version": state.rules_version,
+        "ante": state.ante,
         "blind_idx": state.blind_idx,
+        "blind_kind": state.blind_kind,
+        "boss_effect": state.boss_effect,
         "target": state.target,
         "total_score": state.total_score,
-        "hand": [card_to_dict(c) for c in state.hand],
+        "hand": [card.to_dict() for card in state.hand],
         "deck_count": len(state.deck),
         "discard_pile_count": len(state.discard_pile),
-        "jokers": [joker_to_dict(j) for j in state.jokers],
+        "jokers": [joker.to_dict() for joker in state.jokers],
+        "joker_slots": state.joker_slots,
         "hands_left": state.hands_left,
         "discards_left": state.discards_left,
         "phase": state.phase,
-        "seed": state.seed,
-        "rng_state": state.rng_state,
-        "shop_options": [joker_to_dict(j) for j in state.shop_options],
         "outcome": state.outcome,
         "steps": state.steps,
+        "seed": state.seed,
     }

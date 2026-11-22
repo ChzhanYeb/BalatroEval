@@ -1,0 +1,26 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-episode-shop-extension-seed7",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 7,
+  "origin": "synthetic_dev",
+  "decision_type": "episode",
+  "goal": {"type": "clear_ante1", "target": null},
+  "initial_state": {
+    "hand_ids": null,
+    "joker_ids": [],
+    "blind_idx": 0,
+    "total_score": null,
+    "hands_left": null,
+    "discards_left": null,
+    "target": null
+  },
+  "constraints": {"max_steps": 160, "allowed_action_kinds": null},
+  "extensions": ["free_joker_choice"],
+  "boss_blind": {"name": "Boss Blind (effect disabled)", "effect": null},
+  "metadata": {
+    "description": "Benchmark scaffold ONLY: free 3-choose-1 joker shop between blinds. Not vanilla, must not be cited as alignment evidence.",
+    "tags": ["dev", "extension", "shop"],
+    "benchmark_extension": true
+  }
+}

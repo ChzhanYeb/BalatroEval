@@ -1,0 +1,26 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-play-pair-7h7d",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 42,
+  "origin": "synthetic_dev",
+  "decision_type": "play",
+  "goal": {"type": "reach_score", "target": 48},
+  "initial_state": {
+    "hand_ids": ["c7h", "c7d", "c2s", "c3c", "c5d", "c9s", "c11c", "c13d"],
+    "joker_ids": [],
+    "blind_idx": 0,
+    "total_score": 0,
+    "hands_left": 4,
+    "discards_left": 4,
+    "target": 300
+  },
+  "constraints": {"max_steps": 1, "allowed_action_kinds": ["play"]},
+  "extensions": [],
+  "boss_blind": null,
+  "metadata": {
+    "description": "Golden decision point: 7h 7d Pair (other cards cannot form a better hand). Vanilla level-1 Pair = (10+14)*2 = 48.",
+    "tags": ["dev", "golden", "pair"],
+    "expected_oracle_score": 48
+  }
+}

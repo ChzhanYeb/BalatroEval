@@ -1,11 +1,4 @@
-# BalatroEval 引擎对齐台账（v3.0）
-
-> 本文为中文版（历史英文版见提交 `c65fb9b`）。
-> 文档性质：**引擎规则对齐的单一台账**。v3.0 依据 [07-真实游戏接入与终验.md](../plan/详细版/07-真实游戏接入与终验.md) §3（对齐契约 A0–A4）与 §7（W3 改造清单）重写。
-> 版本：v3.0-2026-11-13 ｜ 状态：**L0 未对齐；目标 W3 达 L2**（真游戏捕获尚未执行，全部表格保持 `PENDING`）
-> 关联文件：`scenarios/RULES_VERSION`、[joker-semantics.md](joker-semantics.md)、[data-sources.md](data-sources.md)、[W2-implementation-report.md](W2-implementation-report.md)
-
----
+# BalatroEval 引擎对齐台账
 
 ## 0. 一句话结论与措辞边界
 

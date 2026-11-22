@@ -114,11 +114,54 @@
 - `add`/`set` 调试钩子只用于环境自检，**不用于构造训练集主数据**。
 - 单种子只保证真游戏内可复现；**不承诺与自建引擎同局面**（D13：captured-state alignment）。
 
-## 8. 变更记录
+## 8. 2026-11-15 规则与设计调研来源（v3.1，docs/balatro/ 专用）
+
+> 目的：为 `docs/balatro/README.md`、`rules.md`、`content.md`、`design.md`、`engine-gap.md` 登记**本次实际打开过的来源**（逐页可复核）。本节不改变任何 fidelity 状态；`bench/` 仍为 L0，`fidelity_status` 仍为 `NOT_VERIFIED`。
+> 用法总则：**只取不可版权的事实数值/名称/日期，描述全部中文重写**；不搬运表格布局、不贴图；同一事实优先引"已打开页面"（✅），仅标题/转述的标 △/⏳。
+
+### 8.1 规则与内容数值（balatrowiki.org，CC BY-NC-SA 3.0）
+
+| 页面（`https://balatrowiki.org/w/`） | 取用内容 | 证据 | 落地文档 |
+|---|---|---|---|
+| `Poker_hands` | 12 种牌型基础 Chips×Mult、星球牌升级增量、计分牌筛选、Royal Flush 特例 | ✅ | rules §5、content §2.2 |
+| `Blinds_and_Antes`、`Module:Ante_Table` | Ante 0–39 基础分（三档 Stake）、Small/Big/Boss/Showdown 倍率、30 盲注、Endless 公式 | ✅ / △（数据模块） | rules §9、content §6 |
+| `Gameplay_loop` | 一局结构与四阶段、胜负、种子局 | ✅ | rules §1、§11 |
+| `Hands`、`Discards`、`Hand_size`、`Consumables` | 4 手 / 3 弃 / 8 手牌 / 2 消耗品槽及其增减来源 | ✅ | rules §3 |
+| `Jokers`、`Category:Jokers`（150 页，API 分批） | 150 Joker、稀有度 61/64/20/5、槽位 5、版本/贴纸/Contains 语义 | ✅ | content §1、rules §4.4 |
+| `Money`、`The_Shop`、`Booster_Packs` | Cash Out 五项、利息 cap、价格/reroll/折扣/补充包权重 | ✅ | rules §6–§7、content §9 |
+| `Stakes`、`Category:Stakes by number`、`Decks` | 8 赌注累积修正、15 牌组效果与解锁 | ✅ | rules §11、content §4–§5 |
+| `Card_modifiers`、`Enhancements`、`Seals` | 8 增强 / 4 封蜡 / 5 含 Base 版式、版式加价、出现率 | ✅ | rules §8、content §8 |
+| `Tags`、`Vouchers`、`Category:Vouchers by number` | 24 Tag、32 Voucher 全表 | ✅ | rules §10/§7.7、content §3/§7 |
+| `Guide:_Activation_Sequence` | 一手牌 8 步激活顺序、重触发规则、+Mult/xMult 顺序 | ✅ | rules §4.4 |
+| `LocalThunk`、`Music`、`Settings`、`Controls`、`Seed` | 开发时间线、配乐、CRT/震屏默认值、种子局 | ✅ | design §1/§4/§9 |
+
+> 未取得来源（已在 `docs/balatro/rules.md` §13.1 与 `design.md` §13 登记）：`Hand_levels`/`Daily_Run`（404）、单次得分取整方式、中间小数处理、每级增量是否恒定（逐级表缺失）、挑战牌组 #14–20。以上均未写成 ✅。
+
+### 8.2 设计、商业与评价来源
+
+| 来源 | 用途 | 许可 / 状态 | 证据 |
+|---|---|---|---|
+| `api.wikimedia.org`（Wikipedia "Balatro" wikitext；`en.wikipedia.org` 直连失败） | 开发史、销量里程碑、奖项、评价、PEGI 时间线、移动版、mod 生态 | CC BY-SA；只取事实并改写，转述处注明 | ✅ |
+| Game Informer 访谈（2024-03-21，Marcus Stewart） | 设计理念原话：大老二来源、非扑克、刻意不玩同类、Joker 描述 ≤4 行、tooltip 教训、CRT 由来 | 版权媒体；仅 ≤1 句引述并注明 | ✅ |
+| Eurogamer（2024-03-01 下架报道；TGA 2024 获奖名单） | PEGI 风波、TGA 结果 | 正文抽取为空，仅标题 | △ |
+| Video Games Chronicle（2024-03-18）、The Globe and Mail（2025-02-06）、Game Rant | 100 万 / 500 万销量、移动端占比 | 未打开原文（403/付费墙/fetch failed） | ⏳ |
+| pegi.info 公告（2025-02 改判 12+）、IGN TGA 名单、LocalThunk 博客（timeline / solitaire） | 评级改判、TGA 明细、开发时间线原文 | 未打开（经 Wiki 引用） | ⏳ |
+| balatrowiki `LocalThunk` 页 | 时间线、首日 10 万、PEGI 12+、遗嘱条款 | CC BY-NC-SA（只取事实） | ✅ |
+
+### 8.3 新增产物与合规
+
+| 产物 | 位置 | 性质 |
+|---|---|---|
+| 调研总纲 / 规则 / 内容 / 设计 / 差异映射 | `docs/balatro/`（5 个 md） | 本项目自写文档，不含第三方文本/图片 |
+| 数据来源与许可登记 | 本节 + 各文档文末来源清单 | 可逐页复核 |
+| 游戏文件 / mod / `.jkr` / 截图 | **无** | 遵守 L8；本目录全为文字与自绘表格 |
+
+## 9. 变更记录
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v2.1 | 2026-11-12 | 初始清单；规则数值 + 设计借鉴 + 学术引用 + 自有内容 + 红线 L7 |
 | v2.2 | 2026-11-13 | 追加 §6 W2 实际实现与核验记录；明确 8 夹具非原版 |
 | **v3.0** | **2026-11-13** | 新增真游戏运行栈（balatrobot/Lovely/Steamodded）、vanilla 牌型基础 Chips×Mult / 盲注目标 / 8 具名 Joker 数值来源；"不接入真游戏"改为"W2 未接入，v3.0 规划接入只做终验/捕获"；新增 L8/L9 与"游戏文件/存档/截图不入库"；§6 旧表保留为历史 |
+| **v3.1** | **2026-11-15** | 新增 §8：`docs/balatro/` 五份调研文档的逐页来源登记（balatrowiki 规则/内容、Wikimedia API、Game Informer 访谈、媒体转述分级）；明确未取得来源清单（Hand_levels/Daily_Run 404、取整方式、逐级表）与 L8 合规（无游戏文件/截图） |
 

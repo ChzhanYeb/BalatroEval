@@ -1,0 +1,25 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-play-three-kind-jolly",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 43,
+  "origin": "synthetic_dev",
+  "decision_type": "play",
+  "goal": {"type": "reach_score", "target": 390},
+  "initial_state": {
+    "hand_ids": ["c8s", "c8h", "c8d", "c2c", "c5s", "c9d", "c11d", "c13h"],
+    "joker_ids": ["joker", "jolly_joker"],
+    "blind_idx": 0,
+    "total_score": 0,
+    "hands_left": 4,
+    "discards_left": 4,
+    "target": 300
+  },
+  "constraints": {"max_steps": 1, "allowed_action_kinds": ["play"]},
+  "extensions": [],
+  "boss_blind": null,
+  "metadata": {
+    "description": "Three of a Kind with Joker(+4 Mult) and Jolly Joker(+8 Mult, contains Pair). 888 = (30+24)*3 +12 = 174 * no... see docs; oracle computes.",
+    "tags": ["dev", "golden", "three_kind", "joker_conditions"]
+  }
+}

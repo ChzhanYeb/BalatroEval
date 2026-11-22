@@ -1,0 +1,25 @@
+{
+  "scenario_schema_version": 1,
+  "scenario_id": "dev-discard-point-flush-draw",
+  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "seed": 44,
+  "origin": "synthetic_dev",
+  "decision_type": "discard",
+  "goal": {"type": "maximize_score", "target": null},
+  "initial_state": {
+    "hand_ids": ["c2h", "c5h", "c8h", "c11h", "c13h", "c3c", "c9d", "c12s"],
+    "joker_ids": ["sly_joker"],
+    "blind_idx": 0,
+    "total_score": 0,
+    "hands_left": 4,
+    "discards_left": 4,
+    "target": 300
+  },
+  "constraints": {"max_steps": 1, "allowed_action_kinds": ["discard"]},
+  "extensions": [],
+  "boss_blind": null,
+  "metadata": {
+    "description": "Discard decision point: keep four hearts and discard the off-suit card. Oracle for discard is approximate (O2), not exact.",
+    "tags": ["dev", "discard_point", "flush_draw"]
+  }
+}
