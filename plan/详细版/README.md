@@ -21,7 +21,6 @@
 | `06-生态调研与复用决策.md` | balatrobot / Lovely / Steamodded / Evalatro / balatro-rs / calculator 逐项评估与许可边界 | 想知“为什么复用/为什么不用”时 |
 | **`07-真实游戏接入与终验.md`** | **决策基线**：两阶段、A0–A4、L0–L3、适配器、ATS、12 局终验、降级方案、L8/L9 | **改环境/规则/评测/归因前必读** |
 
-> **执行状态**：`bench/` 已实现 vanilla 1.0.1o 严格子集 **v2**（计分 + 经济；IMPLEMENTED + TESTED，157 测试）；`evaluation/` 与 `scenarios/` 基建已可用；**A2/A3 真游戏实测 0 行**（`NOT_VERIFIED` / L0；经济口径 5 条未实测），真游戏接入、`scenarios/v3/`、12 局终验、归因器均未执行。`03`–`06` 中未实现的部分仍为目标规格，开工前先确认 `../01-任务进度.md` 的对应「前置条件」。
 
 ## 核心原则
 
