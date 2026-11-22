@@ -6,7 +6,7 @@ import unittest
 
 from bench.actions import Action, encode_card_action, legal_actions, legal_plays
 from bench.cards import STANDARD_DECK_ORDER, card_from_stable_id
-from bench.engine import apply_action, discard, new_game, play
+from bench.engine import apply_action, choose_joker, discard, new_game, play
 from bench.environment import Environment, ResetSpec
 from bench.errors import (
     BAD_REQUEST,
@@ -43,6 +43,9 @@ class TestEngineConstants(unittest.TestCase):
         self.assertEqual(state.discards_left, 4)
         self.assertEqual(state.phase, "play")
         self.assertEqual(state.joker_slots, 5)
+        self.assertEqual(state.money, 4)  # Red Deck 起始 $4
+        self.assertEqual(state.reroll_cost, 5)
+        self.assertIsNone(state.last_payout)
         self.assertEqual(len({c.card_id for c in state.hand + state.deck}), 52)
 
     def test_same_seed_is_deterministic(self):
@@ -63,20 +66,35 @@ class TestEngineConstants(unittest.TestCase):
 
 
 class TestBlindProgression(unittest.TestCase):
-    def test_clear_blind_advances_and_resets(self):
+    def test_clear_blind_pays_out_and_opens_shop(self):
         state = new_game(7)
         state.target = 1  # 仅用于测试：强制本盲注立即达标
         before_hand = [c.card_id for c in state.hand]
         after, result = play(state, [state.hand[0].card_id])
         self.assertGreaterEqual(result.final_score, 1)
-        self.assertEqual(after.blind_idx, 1)
-        self.assertEqual(after.blind_kind, "big")
-        self.assertEqual(after.target, 450)
-        self.assertEqual(after.total_score, 0)
-        self.assertEqual((after.hands_left, after.discards_left), (4, 4))
-        self.assertEqual(len(after.hand), 8)
-        self.assertEqual(after.deck_total, 52)
-        self.assertNotEqual([c.card_id for c in after.hand], before_hand)  # 新盲注重发
+        # v2：Small 通关 → 结算金钱 → 进商店（不再自动进入 Big Blind）
+        self.assertEqual(after.phase, "shop")
+        self.assertEqual(after.blind_idx, 0)
+        payout = after.last_payout
+        self.assertEqual(payout["blind_kind"], "small")
+        self.assertEqual(payout["blind_reward"], 3)
+        self.assertEqual(payout["hand_bonus"], after.hands_left)
+        self.assertEqual(payout["discard_bonus"], after.discards_left)
+        self.assertEqual(payout["interest"], 0)  # 起始 $4 → 不够 $5
+        self.assertEqual(after.money, 4 + payout["total"])
+        self.assertEqual(len(after.shop_options), 2)
+        # 离开商店后才进入 Big Blind，且金钱保留、手牌重发
+        left = choose_joker(after, None)
+        self.assertEqual(left.blind_idx, 1)
+        self.assertEqual(left.blind_kind, "big")
+        self.assertEqual(left.target, 450)
+        self.assertEqual(left.total_score, 0)
+        self.assertEqual((left.hands_left, left.discards_left), (4, 4))
+        self.assertEqual(left.money, after.money)
+        self.assertIsNone(left.last_payout)
+        self.assertEqual(len(left.hand), 8)
+        self.assertEqual(left.deck_total, 52)
+        self.assertNotEqual([c.card_id for c in left.hand], before_hand)  # 新盲注重发
 
     def test_win_after_boss(self):
         state = new_game(7)
@@ -87,6 +105,9 @@ class TestBlindProgression(unittest.TestCase):
         after, _ = play(state, [state.hand[0].card_id])
         self.assertEqual(after.phase, "done")
         self.assertEqual(after.outcome, "win")
+        # Boss 通关也结算（$5 奖励），但不进商店
+        self.assertEqual(after.last_payout["blind_reward"], 5)
+        self.assertEqual(after.shop_options, [])
 
     def test_loss_when_last_hand_misses(self):
         state = new_game(7)
@@ -150,12 +171,16 @@ class TestDiscardAndValidation(unittest.TestCase):
             play(state, [state.hand[0].card_id])
         self.assertEqual(ctx.exception.code, EPISODE_DONE)
 
-    def test_shop_disabled_by_default(self):
+    def test_shop_actions_require_shop_phase(self):
+        # v2 商店默认开启，但只能在 shop 阶段买卖；play 阶段调用应被拒。
         state = new_game(11)
-        state.phase = "shop"
+        self.assertTrue(state.shop_enabled)
         with self.assertRaises(InvalidActionError) as ctx:
-            apply_action(state, Action("choose_joker", joker_index=0))
-        self.assertEqual(ctx.exception.code, NOT_ALLOWED)
+            choose_joker(state, 0)
+        self.assertEqual(ctx.exception.code, INVALID_STATE)
+        with self.assertRaises(InvalidActionError) as ctx:
+            apply_action(state, Action("choose_joker", joker_index=None))
+        self.assertEqual(ctx.exception.code, INVALID_STATE)
 
 
 class TestSnapshot(unittest.TestCase):
@@ -208,7 +233,7 @@ class TestEnvironment(unittest.TestCase):
     def test_reset_and_observe(self):
         env = Environment()
         obs = env.reset(ResetSpec(seed=42))
-        self.assertEqual(obs["schema_version"], 1)
+        self.assertEqual(obs["schema_version"], 2)
         self.assertEqual(obs["episode"]["phase"], "play")
         self.assertEqual(len(obs["hand"]), 8)
         self.assertEqual(obs["blind"]["target"], 300)

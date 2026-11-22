@@ -67,6 +67,7 @@ class TestSingleEpisode(unittest.TestCase):
             self.assertEqual(result.mean_regret, 0.0)
             self.assertEqual(result.optimality_rate, 1.0)
             self.assertEqual(result.legality_rate, 1.0)
+            self.assertEqual(result.final_money, 4)  # 起始 $4，未通关盲注 → 无结算
             events = read_trace(result.trace_path)
             self.assertEqual(events[0]["event"], "episode_start")
             self.assertEqual(events[-1]["event"], "episode_end")
@@ -85,6 +86,21 @@ class TestSingleEpisode(unittest.TestCase):
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.decision_type, "discard")
             self.assertEqual(result.play_decisions, 0)
+
+    def test_shop_decision_point_episode(self):
+        scenario = _scenario_by_id("dev-shop-buy-or-bank")
+        with workspace_tmp() as tmp:
+            config = _config(tmp)
+            store = ExperimentStore(config)
+            result = run_episode(scenario, OracleGreedyAgent(), config, store, "task-shop")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.decision_type, "shop")
+            self.assertEqual(result.play_decisions, 0)
+            # 贪心买第一个 $5 报价 → 剩 $1，然后离开商店
+            self.assertEqual(result.final_money, 1)
+            events = read_trace(result.trace_path)
+            codes = [e["action"]["code"] for e in events if e["event"] == "step"]
+            self.assertEqual(codes, ["choose_joker:buy:0", "choose_joker:leave"])
 
     def test_agent_error_is_isolated(self):
         scenario = _scenario_by_id("dev-play-pair-7h7d")

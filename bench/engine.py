@@ -1,21 +1,28 @@
 """状态初始化与状态推进：Ante 1 子集规则的唯一权威实现。
 
 设计原则：
-- **纯函数式转移**：``new_game`` / ``play`` / ``discard`` / ``choose_joker`` 都不修改
-  入参，先 ``deepcopy`` 再改，最后返回新状态；日志/轨迹由 ``evaluation.trace`` 记录，
-  规则层不做文件 IO。
+- **纯函数式转移**：``new_game`` / ``play`` / ``discard`` / ``choose_joker`` /
+  ``sell_joker`` / ``reroll_shop`` 都不修改入参，先 ``deepcopy`` 再改，最后返回新状态；
+  日志/轨迹由 ``evaluation.trace`` 记录，规则层不做文件 IO。
 - **规则常量集中在** ``bench.rules_version``：目标分 300/450/600、4 手/4 弃、8 张手牌、
-  5 个 Joker 槽位都从 ``Ruleset`` 取，不在本模块散落魔法数字。
+  5 个 Joker 槽位、起始 $4、奖励 $3/$4/$5、利息每 $5 上限 $5、商店价目表都从
+  ``Ruleset`` 取，不在本模块散落魔法数字。
 - **随机性只来自** ``GameState.rng_state``：洗牌与商店抽样都先还原、再写回；相同
   state + 相同动作 ⇒ 相同结果。
 - **显式失败**：非法动作抛 ``InvalidActionError``，不静默忽略；Boss 效果等排除机制
   不会被偷偷跳过（见 ``boss_effect`` 字段与场景校验）。
 
+经济（v2）：
+- 盲注通关时一次性结算「奖励 + 剩余手数 + 未用弃牌 + 利息」写入 ``money``；
+- Small/Big 之后进商店，可买入 / 卖出 / reroll / 离开；Boss 通关即 ``win``，不进商店；
+- 金钱**跨盲注保留**（这正是长线资源分配的唯一载体），手数/弃牌仍每盲注重置。
+
 未验证/子集边界（不得弱化）：
 - 跨盲注手牌处理：本实现把上一盲注剩余手牌放入弃牌堆、从抽牌堆补满（必要时洗回弃牌堆）；
   vanilla 的精确行为未实测（``Ruleset.unverified``）。
 - Boss Blind 仅按目标分建模；Ante 1 的真实 Boss 效果均未实现。
-- 商店默认关闭；``shop_enabled=True`` 是 benchmark 扩展（免费 3 选 1），不是 vanilla。
+- 利息按**入账前**金额计算；商店价格按稀有度取固定中值、候选均匀抽样；这些口径
+  均列入 ``Ruleset.unverified``，不得当作已对齐事实。
 """
 from __future__ import annotations
 
@@ -37,7 +44,7 @@ from .errors import (
 )
 from .jokers import JOKER_CATALOG, CATALOG_BY_ID
 from .model import Card, GameState, Joker
-from .rules_version import VANILLA_SUBSET_V1, Ruleset
+from .rules_version import VANILLA_SUBSET_V1, Ruleset, joker_price, sell_value
 from .rng import encode_state, restore_rng
 from .scoring import ScoreResult, score_hand
 
@@ -100,6 +107,9 @@ def _start_blind(state: GameState, blind_idx: int, ruleset: Ruleset) -> None:
 
     顺序：先把当前手牌放入弃牌堆 → 重置资源与目标 → 补满手牌。这样弃牌堆里包含
     “上一盲注未打出的牌”，牌堆不足时会在洗回时参与下一次抽取（确定性行为）。
+
+    **不改动 money**：金钱是跨盲注资源（这正是经济层存在的意义）。只把
+    ``last_payout``（上一盲注的结算明细）清空、把 ``reroll_cost`` 重置为基准价。
     """
     spec = _blind_spec(ruleset, blind_idx)
     state.blind_idx = blind_idx
@@ -112,6 +122,8 @@ def _start_blind(state: GameState, blind_idx: int, ruleset: Ruleset) -> None:
     state.shop_options = []
     state.phase = "play"
     state.outcome = None
+    state.last_payout = None
+    state.reroll_cost = ruleset.reroll_base_cost
     if state.hand:
         state.discard_pile.extend(state.hand)
         state.hand = []
@@ -206,6 +218,9 @@ def new_game(
         discard_pile=[],
         jokers=jokers,
         shop_options=[],
+        money=ruleset.starting_money,
+        reroll_cost=ruleset.reroll_base_cost,
+        last_payout=None,
         seed=seed,
         rng_state=encode_state(rng),
     )
@@ -213,27 +228,89 @@ def new_game(
     return state
 
 
-def _create_shop_options(state: GameState, count: int = 3) -> None:
-    """生成 count 个互不重复的商店候选（排除已拥有）；修改 rng_state。"""
+def _blind_payout(state: GameState, ruleset: Ruleset) -> dict:
+    """结算一次通关奖励并写入 ``state.money``，返回明细。
+
+    口径（v2，整数、无随机）::
+
+        blind_reward = BlindSpec.reward_money        # Small 3 / Big 4 / Boss 5
+        hand_bonus   = hands_left   * hand_bonus     # 每剩 1 手 +$1
+        discard_bonus= discards_left* discard_bonus  # 每未用 1 弃牌 +$1
+        interest     = min(money // 5, 5)            # 用**入账前**的 money 计算
+        total        = blind_reward + hand_bonus + discard_bonus + interest
+
+    边界：利息用入账前的金额（原版顺序未实测，见 ``Ruleset.unverified``）；
+    本函数只改 ``state.money``，不改分数与阶段。
+
+    Args:
+        state: 将被修改的状态（调用方保证是副本）。
+        ruleset: 规则集（提供奖励/利息常量）。
+
+    Returns:
+        明细 dict：``blind_reward`` / ``hand_bonus`` / ``discard_bonus`` / ``interest`` /
+        ``total`` / ``money_before`` / ``money_after``。
+    """
+    spec = ruleset.blind(state.blind_idx)
+    money_before = state.money
+    blind_reward = spec.reward_money
+    hand_bonus = state.hands_left * ruleset.hand_bonus
+    discard_bonus = state.discards_left * ruleset.discard_bonus
+    interest = min(money_before // ruleset.interest_per, ruleset.interest_cap)
+    total = blind_reward + hand_bonus + discard_bonus + interest
+    state.money = money_before + total
+    return {
+        "blind_kind": spec.kind,
+        "blind_reward": blind_reward,
+        "hand_bonus": hand_bonus,
+        "discard_bonus": discard_bonus,
+        "interest": interest,
+        "total": total,
+        "money_before": money_before,
+        "money_after": state.money,
+    }
+
+
+def draw_shop_offers(state: GameState, ruleset: Ruleset) -> None:
+    """抽一批商店报价（原地修改 ``state.shop_options``；消耗 ``rng_state``）。
+
+    规则（v2）：候选池 = 8 个具名 Joker 中**尚未拥有**的那些；用 ``rng.sample``
+    **均匀**抽 ``ruleset.shop_offer_count`` 个。原版是带稀有度权重的卡池，本子集
+    不建模权重（见 ``Ruleset.unverified: shop_offer_pool_uniform_no_rarity_weights``）。
+
+    Args:
+        state: 将被修改的状态（调用方保证是副本）。
+        ruleset: 规则集（提供报价数量）。
+    """
     owned = {j.jid for j in state.jokers}
     available = [j for j in JOKER_CATALOG if j.jid not in owned]
     rng = restore_rng(state.rng_state)
-    selected = rng.sample(available, min(count, len(available))) if available else []
-    state.shop_options = list(selected)
+    count = min(ruleset.shop_offer_count, len(available))
+    state.shop_options = list(rng.sample(available, count)) if count else []
     state.rng_state = encode_state(rng)
 
 
+def open_shop(state: GameState, ruleset: Ruleset) -> None:
+    """打开商店：``phase='shop'``、重置 reroll 价、抽一批报价。
+
+    只在 Small/Big 通关后调用（Boss 通关即 ``win``，不再进商店）。卖掉的 Joker
+    会回到候选池，因此可能在后续 reroll 中再次出现（本子集不维护淘汰池）。
+    """
+    state.phase = "shop"
+    state.reroll_cost = ruleset.reroll_base_cost
+    draw_shop_offers(state, ruleset)
+
+
 def _after_play(state: GameState, ruleset: Ruleset) -> None:
-    """出牌后的阶段结算：达标 → 过盲注/胜利；否则手牌耗尽 → 失败。"""
+    """出牌后的阶段结算：达标 → 结算金钱 → 商店/下一盲注/胜利；否则手牌耗尽 → 失败。"""
     if state.total_score >= state.target:
+        state.last_payout = _blind_payout(state, ruleset)
         if state.blind_idx >= 2:
             state.phase = "done"
             state.outcome = "win"
             state.shop_options = []
             return
         if ruleset.shop_enabled:
-            state.phase = "shop"
-            _create_shop_options(state)
+            open_shop(state, ruleset)
             return
         _start_blind(state, state.blind_idx + 1, ruleset)
         return
@@ -241,6 +318,7 @@ def _after_play(state: GameState, ruleset: Ruleset) -> None:
         state.phase = "done"
         state.outcome = "loss"
         state.shop_options = []
+
 
 
 def play(state: GameState, card_ids: Sequence[str]) -> tuple[GameState, ScoreResult]:
@@ -338,43 +416,106 @@ def discard(state: GameState, card_ids: Sequence[str]) -> GameState:
 
 
 def choose_joker(state: GameState, index: int | None) -> GameState:
-    """商店扩展动作：选择第 index 个候选（None=跳过）并进入下一盲注。
+    """商店动作：买入第 index 个报价（None = 离开商店，进入下一盲注）。
 
     Args:
-        state: 必须处于 phase='shop'（仅当 ``shop_enabled``）。
-        index: 候选下标，或 None 表示跳过。
+        state: 必须处于 phase='shop'。
+        index: 报价下标，或 None 表示离开商店。
 
     Returns:
-        新状态（下一盲注 play 阶段）。
+        新状态。买入后**仍停在 shop 阶段**（还能继续买/卖/reroll，最后显式离开）；
+        离开后进入下一盲注的 play 阶段。
 
     Raises:
         InvalidActionError: 商店未启用（NOT_ALLOWED）、阶段不符（INVALID_STATE）、
-            下标越界（BAD_REQUEST）、槽位已满（NO_RESOURCE）、重复拥有（NOT_ALLOWED）。
+            下标越界（BAD_REQUEST）、槽位已满或钱不够（NO_RESOURCE）、重复拥有
+            （NOT_ALLOWED）。
     """
     if not state.shop_enabled:
-        raise InvalidActionError(NOT_ALLOWED, "shop is disabled in this ruleset",
-                                 {"extension": "free_joker_choice"})
+        raise InvalidActionError(NOT_ALLOWED, "shop is disabled in this ruleset")
     if state.phase != "shop":
         raise InvalidActionError(INVALID_STATE, f"choose_joker requires phase='shop', got {state.phase!r}")
     after = copy.deepcopy(state)
-    if index is not None:
-        if not 0 <= index < len(after.shop_options):
-            raise InvalidActionError(BAD_REQUEST, "shop option index out of range",
-                                     {"index": index, "options": len(after.shop_options)})
-        chosen = after.shop_options[index]
-        if len(after.jokers) >= after.joker_slots:
-            raise InvalidActionError(NO_RESOURCE, "all Joker slots are occupied")
-        if any(j.jid == chosen.jid for j in after.jokers):
-            raise InvalidActionError(NOT_ALLOWED, "duplicate Joker ownership is not allowed")
-        after.jokers.append(chosen)
+    if index is None:
+        after.steps += 1
+        _start_blind(after, after.blind_idx + 1, _ruleset_like(after))
+        _check_state(after)
+        return after
+    if not 0 <= index < len(after.shop_options):
+        raise InvalidActionError(BAD_REQUEST, "shop option index out of range",
+                                 {"index": index, "options": len(after.shop_options)})
+    chosen = after.shop_options[index]
+    price = joker_price(chosen)
+    if len(after.jokers) >= after.joker_slots:
+        raise InvalidActionError(NO_RESOURCE, "all Joker slots are occupied",
+                                 {"slots": after.joker_slots})
+    if any(j.jid == chosen.jid for j in after.jokers):
+        raise InvalidActionError(NOT_ALLOWED, "duplicate Joker ownership is not allowed")
+    if after.money < price:
+        raise InvalidActionError(NO_RESOURCE, "not enough money to buy this Joker",
+                                 {"money": after.money, "price": price, "joker_id": chosen.jid})
+    after.money -= price
+    after.jokers.append(chosen)
+    del after.shop_options[index]
     after.steps += 1
-    _start_blind(after, after.blind_idx + 1, _ruleset_like(after))
+    _check_state(after)
+    return after
+
+
+def sell_joker(state: GameState, index: int) -> GameState:
+    """卖出第 index 个已拥有的 Joker：返还 ``max(1, price // 2)``，腾出槽位。
+
+    Args:
+        state: 必须处于 phase='shop'（原版也只在商店界面能卖）。
+        index: Joker 槽位下标（0 基，按槽位顺序）。
+
+    Returns:
+        新状态（phase 仍为 shop）。
+
+    Raises:
+        InvalidActionError: 阶段不符（INVALID_STATE）、下标越界（BAD_REQUEST）。
+    """
+    if state.phase != "shop":
+        raise InvalidActionError(INVALID_STATE, f"sell_joker requires phase='shop', got {state.phase!r}")
+    if not 0 <= index < len(state.jokers):
+        raise InvalidActionError(BAD_REQUEST, "joker slot index out of range",
+                                 {"index": index, "jokers": len(state.jokers)})
+    after = copy.deepcopy(state)
+    sold = after.jokers.pop(index)
+    after.money += sell_value(sold)
+    after.steps += 1
+    _check_state(after)
+    return after
+
+
+def reroll_shop(state: GameState) -> GameState:
+    """花 ``reroll_cost`` 换一批商店报价；同一商店内每次 reroll 价格 +$1。
+
+    Args:
+        state: 必须处于 phase='shop'。
+
+    Returns:
+        新状态（phase 仍为 shop，``reroll_cost`` 已涨价）。
+
+    Raises:
+        InvalidActionError: 阶段不符（INVALID_STATE）、钱不够（NO_RESOURCE）。
+    """
+    if state.phase != "shop":
+        raise InvalidActionError(INVALID_STATE, f"reroll_shop requires phase='shop', got {state.phase!r}")
+    if state.money < state.reroll_cost:
+        raise InvalidActionError(NO_RESOURCE, "not enough money to reroll",
+                                 {"money": state.money, "reroll_cost": state.reroll_cost})
+    after = copy.deepcopy(state)
+    after.money -= after.reroll_cost
+    after.reroll_cost += _ruleset_like(after).reroll_increment
+    draw_shop_offers(after, _ruleset_like(after))
+    after.steps += 1
     _check_state(after)
     return after
 
 
 def apply_action(state: GameState, action: Action) -> tuple[GameState, ScoreResult | None]:
-    """统一动作入口：把 ``Action`` 分派到 play/discard/choose_joker。
+    """统一动作入口：把 ``Action`` 分派到 play/discard/choose_joker/sell_joker/reroll_shop。
 
     Returns:
         (新状态, ScoreResult 或 None)。
@@ -389,4 +530,10 @@ def apply_action(state: GameState, action: Action) -> tuple[GameState, ScoreResu
         return discard(state, action.card_ids), None
     if action.kind == "choose_joker":
         return choose_joker(state, action.joker_index), None
+    if action.kind == "sell_joker":
+        if action.joker_index is None:  # 防御性：Action 构造已拒绝 None
+            raise InvalidActionError(BAD_REQUEST, "sell_joker requires joker_index")
+        return sell_joker(state, action.joker_index), None
+    if action.kind == "reroll_shop":
+        return reroll_shop(state), None
     raise InvalidActionError(BAD_REQUEST, f"unsupported action kind: {action.kind!r}")

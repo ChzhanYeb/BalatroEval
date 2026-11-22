@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .rules_version import VANILLA_SUBSET_V1
+from .rules_version import REROLL_BASE_COST, STARTING_MONEY, VANILLA_SUBSET_V1
 
 SUIT_NAMES = ("spades", "hearts", "diamonds", "clubs")
 SUIT_CODES = ("s", "h", "d", "c")
@@ -202,8 +202,16 @@ class GameState:
       ``target`` / ``joker_slots``；
     - 资源与进度：``total_score`` / ``hands_left`` / ``discards_left`` / ``steps`` /
       ``phase`` / ``outcome``；
+    - 经济（v2）：``money`` / ``reroll_cost`` / ``last_payout``；
     - 牌与 Joker：``hand`` / ``deck`` / ``discard_pile`` / ``jokers`` / ``shop_options``；
     - 随机性：``seed`` / ``rng_state``。
+
+    经济语义：
+    - ``money`` 只由「盲注结算」增加（奖励 + 剩余手数 + 未用弃牌 + 利息），只由「商店」
+      减少（买入 / reroll）；出牌与弃牌都不花钱。
+    - ``reroll_cost`` 只在当前商店内累加，进入下一盲注时重置为基准价。
+    - ``last_payout`` 是最近一次结算的明细（奖励/手数/弃牌/利息/合计/结算后金额），
+      用于 observation 与 trace 对账；进入下一盲注时清空。
 
     可变性：本类不做防御性拷贝；``bench.engine`` 的状态转移在 deepcopy 副本上完成。
     直接就地修改会跳过校验与转移语义，属于未受支持用法。
@@ -229,6 +237,10 @@ class GameState:
     steps: int = 0
     phase: Phase = "play"
     outcome: Outcome | None = None
+    # --- 经济（v2）---
+    money: int = STARTING_MONEY
+    reroll_cost: int = REROLL_BASE_COST
+    last_payout: dict | None = None
     # --- 牌与 Joker ---
     hand: list[Card] = field(default_factory=list)
     deck: list[Card] = field(default_factory=list)
@@ -260,6 +272,12 @@ class GameState:
             raise ValueError(f"invalid outcome: {self.outcome!r}")
         if self.total_score < 0:
             raise ValueError("total_score cannot be negative")
+        if self.money < 0:
+            raise ValueError("money cannot be negative")
+        if self.reroll_cost < 0:
+            raise ValueError("reroll_cost cannot be negative")
+        if self.last_payout is not None and not isinstance(self.last_payout, dict):
+            raise ValueError("last_payout must be a dict or None")
 
     @property
     def deck_total(self) -> int:
@@ -299,6 +317,7 @@ def state_summary(state: GameState) -> dict:
         "joker_slots": state.joker_slots,
         "hands_left": state.hands_left,
         "discards_left": state.discards_left,
+        "money": state.money,
         "phase": state.phase,
         "outcome": state.outcome,
         "steps": state.steps,

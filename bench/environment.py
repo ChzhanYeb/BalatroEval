@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .actions import Action, legal_actions as rule_legal_actions
-from .engine import apply_action, new_game
+from .engine import apply_action, new_game, open_shop
 from .errors import BAD_REQUEST, EPISODE_DONE, INVALID_STATE, NOT_ALLOWED, InvalidActionError
 from .model import GameState
 from .observation import build_observation, render_observation
@@ -35,7 +35,7 @@ class StepResult:
 
     Attributes:
         observation: 新状态的 observation dict。
-        reward: 本次动作带来的分数增量（play 得分；discard/choose_joker 为 0）。
+        reward: 本次动作带来的分数增量（play 得分；discard/商店动作为 0）。
         terminated: 规则意义上的 episode 结束。
         truncated: 外部限制（max_steps）导致的结束。
         info: 结构化附加信息：``state_hash`` / ``score`` / ``action_code`` /
@@ -73,6 +73,9 @@ class ResetSpec:
         max_steps: 步数上限（None = 不限制）。
         blind_idx / total_score / hands_left / discards_left / target:
             覆盖初始状态字段（用于固定决策点场景）；None 表示用默认值。
+        money: 覆盖初始金钱；None 表示用规则默认（Red Deck $4）。
+        shop_open: True 表示 reset 后直接进入商店（用于商店决策点场景）；
+            只对 blind_idx 0/1 有意义（Boss 通关即 win，没有商店）。
         scenario_id: 场景 ID（写入 episode 元数据）。
     """
 
@@ -88,6 +91,8 @@ class ResetSpec:
     hands_left: int | None = None
     discards_left: int | None = None
     target: int | None = None
+    money: int | None = None
+    shop_open: bool = False
     scenario_id: str | None = None
 
 
@@ -168,6 +173,20 @@ class Environment:
                 raise InvalidActionError(BAD_REQUEST, "discards_left out of range",
                                          {"discards_left": spec.discards_left})
             state.discards_left = spec.discards_left
+        if spec.money is not None:
+            if spec.money < 0:
+                raise InvalidActionError(BAD_REQUEST, "money cannot be negative",
+                                         {"money": spec.money})
+            state.money = spec.money
+        if spec.shop_open:
+            if not spec.ruleset.shop_enabled:
+                raise InvalidActionError(NOT_ALLOWED, "shop is disabled in this ruleset")
+            if state.blind_idx == 2:
+                raise InvalidActionError(
+                    BAD_REQUEST, "shop does not open after the boss blind",
+                    {"blind_idx": state.blind_idx},
+                )
+            open_shop(state, spec.ruleset)
         self.state = state
         self.reset_spec = spec
         self.step_count = 0
@@ -246,7 +265,7 @@ class Environment:
                 act = Action(act.kind, card_ids=act.card_ids, hand_indices_snapshot=snapshot)
         before = state
         after, result = apply_action(state, act)
-        # reward 在环境层定义为“本步分数增量”；discard/choose_joker 为 0。
+        # reward 在环境层定义为“本步分数增量”；discard/商店动作为 0（金钱变化看 info）。
         reward = result.final_score if isinstance(result, ScoreResult) else 0
         self.state = after
         self.step_count += 1
@@ -271,6 +290,9 @@ class Environment:
             "outcome": after.outcome,
             "blind_idx": after.blind_idx,
             "total_score": after.total_score,
+            "money": after.money,
+            "money_delta": after.money - before.money,
+            "last_payout": after.last_payout,
             "termination_reason": termination_reason,
         }
         if isinstance(result, ScoreResult):

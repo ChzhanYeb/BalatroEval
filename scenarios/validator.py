@@ -4,9 +4,11 @@
 - rules_version 与当前 Ruleset 一致；
 - origin / decision_type / goal 合法；
 - 初始手牌/Joker 全部是合法稳定 ID、不重复、不超过容量；
-- 盲注/资源/目标分在规则范围内；
+- 盲注/资源/目标分/金钱在规则范围内；
+- **经济决策点**（``decision_type="shop"``）必须声明 ``initial_state.shop_open=true``，
+  且只能允许商店动作（choose_joker / sell_joker / reroll_shop）；
 - **Boss 效果**：任何非空 effect 都拒绝（子集未实现 Boss 效果，见 Ruleset.excluded）；
-- extensions 只允许 ``free_joker_choice``，且 real_capture/real_counterfactual 场景不得使用；
+- extensions 必须为空：v2 起商店是基础规则，``free_joker_choice`` 等扩展已退役；
 - real_capture 场景必须有 metadata.capture_id；
 - 未知字段拒绝（防止拼写错误被静默忽略）。
 """
@@ -17,7 +19,7 @@ from typing import Iterable
 from bench.cards import card_from_stable_id
 from bench.errors import BAD_REQUEST, NOT_ALLOWED, UnsupportedRuleError, InvalidActionError
 from bench.jokers import CATALOG_BY_ID
-from bench.rules_version import SHOP_EXTENSION, VANILLA_SUBSET_V1, Ruleset
+from bench.rules_version import RETIRED_EXTENSIONS, VANILLA_SUBSET_V1, Ruleset
 
 from .schema import (
     SCENARIO_SCHEMA_VERSION,
@@ -32,7 +34,8 @@ _ALLOWED_TOP_LEVEL = {
     "decision_type", "goal", "initial_state", "constraints", "extensions",
     "boss_blind", "metadata",
 }
-_ALLOWED_ACTIONS = {"play", "discard", "choose_joker"}
+_ALLOWED_ACTIONS = {"play", "discard", "choose_joker", "sell_joker", "reroll_shop"}
+_SHOP_ACTIONS = {"choose_joker", "sell_joker", "reroll_shop"}
 
 
 def validate_scenario(scenario: Scenario, ruleset: Ruleset = VANILLA_SUBSET_V1,
@@ -72,15 +75,13 @@ def validate_scenario(scenario: Scenario, ruleset: Ruleset = VANILLA_SUBSET_V1,
     if scenario.goal.type == "reach_score" and (scenario.goal.target is None or scenario.goal.target <= 0):
         raise InvalidActionError(BAD_REQUEST, "goal.target must be positive for reach_score")
 
-    # 扩展
-    unknown_ext = [name for name in scenario.extensions if name != SHOP_EXTENSION]
-    if unknown_ext:
-        raise UnsupportedRuleError(f"unsupported scenario extensions: {unknown_ext}",
-                                   {"extensions": unknown_ext})
-    if scenario.extensions and scenario.origin != "synthetic_dev":
+    # 扩展：v2 起全部退役（商店取代了免费三选一）
+    if scenario.extensions:
+        retired = [name for name in scenario.extensions if name in RETIRED_EXTENSIONS]
+        hint = " (retired in v2: the paid shop replaced the free choice)" if retired else ""
         raise UnsupportedRuleError(
-            "benchmark extensions are only allowed for synthetic_dev scenarios",
-            {"origin": scenario.origin, "extensions": list(scenario.extensions)},
+            f"unsupported scenario extensions: {list(scenario.extensions)}{hint}",
+            {"extensions": list(scenario.extensions)},
         )
 
     # 动作种类约束
@@ -93,12 +94,23 @@ def validate_scenario(scenario: Scenario, ruleset: Ruleset = VANILLA_SUBSET_V1,
         allowed = allowed or ("discard",)
         if set(allowed) != {"discard"}:
             raise InvalidActionError(NOT_ALLOWED, "discard decision scenarios must allow only 'discard'")
+    elif scenario.decision_type == "shop":
+        allowed = allowed or tuple(sorted(_SHOP_ACTIONS))
+        if not set(allowed) <= _SHOP_ACTIONS:
+            raise InvalidActionError(
+                NOT_ALLOWED,
+                "shop decision scenarios may only allow shop actions",
+                {"allowed": list(allowed)},
+            )
+        if not scenario.initial_state.shop_open:
+            raise InvalidActionError(
+                BAD_REQUEST,
+                "shop decision scenarios must declare initial_state.shop_open=true",
+            )
     if allowed is not None:
         bad = sorted(set(allowed) - _ALLOWED_ACTIONS)
         if bad:
             raise InvalidActionError(BAD_REQUEST, f"invalid allowed_action_kinds: {bad}")
-        if "choose_joker" in allowed and SHOP_EXTENSION not in scenario.extensions:
-            raise InvalidActionError(NOT_ALLOWED, "choose_joker requires the free_joker_choice extension")
 
     if scenario.constraints.max_steps is not None and scenario.constraints.max_steps <= 0:
         raise InvalidActionError(BAD_REQUEST, "constraints.max_steps must be positive")
@@ -122,6 +134,16 @@ def validate_scenario(scenario: Scenario, ruleset: Ruleset = VANILLA_SUBSET_V1,
         raise InvalidActionError(BAD_REQUEST, "initial_state.hands_left out of range")
     if initial.discards_left is not None and not 0 <= initial.discards_left <= ruleset.discards_per_blind:
         raise InvalidActionError(BAD_REQUEST, "initial_state.discards_left out of range")
+    if initial.money is not None and initial.money < 0:
+        raise InvalidActionError(BAD_REQUEST, "initial_state.money cannot be negative")
+    if initial.shop_open:
+        if not ruleset.shop_enabled:
+            raise UnsupportedRuleError("shop is disabled in this ruleset")
+        if blind_idx == 2:
+            raise InvalidActionError(
+                BAD_REQUEST,
+                "shop does not open after the boss blind (boss clear ends the run)",
+            )
 
     # Boss：Ante 1 的 Boss 一定存在效果；子集未实现 → 场景必须显式声明 effect=None，
     # 且不得请求任何具名效果。

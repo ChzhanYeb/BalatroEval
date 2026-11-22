@@ -6,7 +6,8 @@
 - **O2 ``discard_ev``**：Monte Carlo 估计“弃牌后下一手 O1 分数”的均值/最小/最大，
   抽样模型与引擎真实发牌**不一致**（不读 rng_state、把 deck+discard 混池），因此是
   approximate，不是精确期望值；
-- **O3 ``greedy_episode``**：O1 贪心 + 商店选第一个的参照轨迹，不是最优解或上界。
+- **O3 ``greedy_episode``**：O1 贪心 + 商店「能买就买第一个 / 否则离开」的参照轨迹，
+  不是最优解或上界（经济决策也不做前瞻）。
 
 与评测层的接口：
 - ``score_action(state, action)`` 对 ``play`` 返回精确 ``ScoreResult``；对 ``discard`` 返回
@@ -25,10 +26,11 @@ from typing import Sequence
 
 from .actions import Action, legal_discards, legal_plays
 from .cards import cards_by_ids
+from .engine import apply_action
 from .engine import play as engine_play
-from .engine import choose_joker as engine_choose_joker
 from .errors import BAD_REQUEST, INVALID_STATE, InvalidActionError
 from .model import Card, GameState
+from .rules_version import joker_price
 from .scoring import ScoreResult, score_hand
 
 ORACLE_PRECISION_EXACT_LOCAL = "exact_local_play_argmax"
@@ -86,8 +88,9 @@ def score_action(state: GameState, action: Action) -> ScoreResult | None:
     """精确评估一个动作的“本步收益”。
 
     - ``play``：返回精确 ``ScoreResult``（与 engine 使用同一 ``score_hand``）；
-    - ``discard`` / ``choose_joker``：返回 None（弃牌价值只能用 O2 近似，商店价值不属于
-      单步计分，评测层应分别处理）。
+    - ``discard`` / 商店动作（``choose_joker`` / ``sell_joker`` / ``reroll_shop``）：
+      返回 None（弃牌价值只能用 O2 近似，商店价值是跨期资源决策，不属于单步计分，
+      评测层应分别处理）。
 
     Raises:
         InvalidActionError: 出牌的卡牌不在当前手牌中/重复（UNKNOWN_CARD/DUPLICATE_CARD）。
@@ -173,19 +176,42 @@ def _combos_for_hand(hand: Sequence[Card]) -> list[tuple[int, ...]]:
 
 @dataclass(frozen=True, slots=True)
 class EpisodeReference:
-    """O3 近似对局摘要。"""
+    """O3 近似对局摘要（含最终金钱）。"""
 
     outcome: str | None
     score_by_blind: tuple[int, ...]
     total_scored: int
     steps: int
+    final_money: int = 0
     precision: str = "approximate_greedy_not_global_optimum"
 
 
-def greedy_episode(state: GameState, max_steps: int = 200) -> EpisodeReference:
-    """用 O1 贪心打完整局（商店选第一个/跳过），返回近似摘要。
+def greedy_shop_action(state: GameState) -> Action:
+    """O3 的商店策略：能买得起第一个报价就买，否则离开（不 reroll、不卖）。
 
-    这是参照轨迹，不是最优策略；不评估弃牌、不搜索。
+    这条策略**不是**经济最优解，只用于给出一致、可复现的参照轨迹：
+    它不看利息、不比较两个报价的收益，也不为后续盲注存钱。
+
+    Args:
+        state: 必须 ``phase == 'shop'``。
+
+    Returns:
+        ``choose_joker`` 动作（买下标 0..n 或 ``None`` 离开）。
+    """
+    has_free_slot = len(state.jokers) < state.joker_slots
+    if has_free_slot:
+        for index, offer in enumerate(state.shop_options):
+            if any(j.jid == offer.jid for j in state.jokers):
+                continue
+            if state.money >= joker_price(offer):
+                return Action("choose_joker", joker_index=index)
+    return Action("choose_joker", joker_index=None)
+
+
+def greedy_episode(state: GameState, max_steps: int = 200) -> EpisodeReference:
+    """用 O1 贪心打完整局（商店：能买就买第一个，否则离开），返回近似摘要。
+
+    这是参照轨迹，不是最优策略；不评估弃牌、不搜索、不做经济优化。
 
     Raises:
         RuntimeError: 超过 max_steps（状态机不前进，暴露 bug）。
@@ -195,9 +221,10 @@ def greedy_episode(state: GameState, max_steps: int = 200) -> EpisodeReference:
     total_scored = 0
     for _ in range(max_steps):
         if current.phase == "done":
-            return EpisodeReference(current.outcome, tuple(scores), total_scored, current.steps)
+            return EpisodeReference(current.outcome, tuple(scores), total_scored,
+                                    current.steps, current.money)
         if current.phase == "shop":
-            current = engine_choose_joker(current, 0 if current.shop_options else None)
+            current = apply_action(current, greedy_shop_action(current))[0]
             continue
         best = best_play(current)
         index = current.blind_idx

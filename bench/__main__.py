@@ -16,8 +16,8 @@ import random
 from itertools import combinations
 
 from .cards import standard_deck
-from .engine import new_game, play, choose_joker
-from .oracle import best_play, discard_ev, greedy_episode
+from .engine import apply_action, new_game, play
+from .oracle import best_play, discard_ev, greedy_episode, greedy_shop_action
 from .rules_version import VANILLA_SUBSET_V1
 from .scoring import score_hand
 
@@ -55,7 +55,7 @@ def verify_oracle(samples: int = 10, seed: int = 20261112) -> dict:
 
 
 def run_demo(seed: int, max_steps: int) -> dict:
-    """用 O1 贪心跑一局 Ante 1 样例，返回可 JSON 序列化的摘要。"""
+    """用 O1 贪心跑一局 Ante 1 样例，返回可 JSON 序列化的摘要（含金钱轨迹）。"""
     reference = greedy_episode(new_game(seed), max_steps=max_steps)
     # 再跑一遍以记录逐步历史（greedy_episode 只返回摘要）。
     current = new_game(seed)
@@ -64,8 +64,14 @@ def run_demo(seed: int, max_steps: int) -> dict:
         if current.phase == "done":
             break
         if current.phase == "shop":
-            current = choose_joker(current, 0 if current.shop_options else None)
-            history.append({"action": "choose_joker", "blind_idx": current.blind_idx})
+            action = greedy_shop_action(current)
+            money_before = current.money
+            current = apply_action(current, action)[0]
+            history.append({
+                "action": action.kind, "code": action.code,
+                "money_before": money_before, "money_after": current.money,
+                "blind_idx": current.blind_idx, "phase": current.phase,
+            })
             continue
         best = best_play(current)
         current, result = play(current, best.card_ids)
@@ -73,13 +79,15 @@ def run_demo(seed: int, max_steps: int) -> dict:
             "action": "play", "cards": list(best.card_ids),
             "hand_type": result.hand_type.value, "score": result.final_score,
             "total_score": current.total_score, "blind_idx": current.blind_idx,
-            "phase": current.phase,
+            "phase": current.phase, "money": current.money,
+            "payout": current.last_payout,
         })
     return {
         "seed": seed, "rules_version": current.rules_version,
         "outcome": reference.outcome, "phase": current.phase,
         "blind_idx": current.blind_idx, "blind_scores": reference.score_by_blind,
         "total_scored": reference.total_scored, "steps": current.steps,
+        "money": current.money, "jokers": [j.jid for j in current.jokers],
         "history": history,
     }
 

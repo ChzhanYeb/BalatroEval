@@ -1,0 +1,28 @@
+{
+  "scenario_schema_version": 2,
+  "scenario_id": "dev-shop-buy-or-bank",
+  "rules_version": "vanilla_1.0.1o_subset_v2",
+  "seed": 7,
+  "origin": "synthetic_dev",
+  "decision_type": "shop",
+  "goal": {"type": "maximize_money", "target": null},
+  "initial_state": {
+    "hand_ids": ["c7h", "c7d", "c2s", "c3c", "c5d", "c9s", "c11c", "c13d"],
+    "joker_ids": [],
+    "blind_idx": 0,
+    "total_score": 0,
+    "hands_left": 4,
+    "discards_left": 4,
+    "target": 300,
+    "money": 6,
+    "shop_open": true
+  },
+  "constraints": {"max_steps": 2, "allowed_action_kinds": null},
+  "extensions": [],
+  "boss_blind": null,
+  "metadata": {
+    "description": "Economy decision point: after clearing the Small Blind you hold $6 and the shop offers Jolly Joker ($5) and Wily Joker ($5). Buying leaves $1 (no interest); leaving keeps $6, which pays $1 interest at the next clear and still lets you buy later. This is a planning trade-off, not a single-step score maximization.",
+    "tags": ["dev", "economy", "shop", "tradeoff"],
+    "offers_seed_note": "seed 7 deterministically yields jolly_joker + wily_joker (both Common $5)"
+  }
+}

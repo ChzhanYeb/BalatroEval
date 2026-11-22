@@ -1,7 +1,7 @@
 """规则层核心测试（vanilla 1.0.1o 子集）。
 
 说明：本文件取代旧 ``test_w2_rules.py`` 中针对 L0 自定义公式的断言（``PAIR`` 得 28 等）。
-替代依据：``docs/balatro/engine-gap.md`` 的 23 项差异表与 ``plan/01-每周任务.md`` W3 任务 3–4
+替代依据：``docs/balatro/engine-gap.md`` 的 23 项差异表与 ``plan/01-任务进度.md`` W3 任务 3–4
 明确要求“牌型基础 Chips×Mult + 计分牌筛选 + 等级 1”，旧断言记录的是被替代的 L0 公式，
 因此不是“为了通过测试而改期望值”，而是规则版本升级（见 docs/implementation/testing-and-validation.md）。
 """

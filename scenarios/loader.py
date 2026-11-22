@@ -91,10 +91,10 @@ def scenario_hash(scenario: Scenario) -> str:
 
 
 def to_reset_spec(scenario: Scenario) -> ResetSpec:
-    """把 Scenario 转成 Environment 的 ResetSpec（规则集按 extensions 解析）。
+    """把 Scenario 转成 Environment 的 ResetSpec。
 
     Raises:
-        ValueError: extensions 含未支持项（正常应已被 validator 拦截）。
+        ValueError: extensions 非空（v2 起不再支持任何扩展；正常应已被 validator 拦截）。
     """
     ruleset = ruleset_for(scenario.extensions)
     allowed = scenario.constraints.allowed_action_kinds
@@ -103,6 +103,8 @@ def to_reset_spec(scenario: Scenario) -> ResetSpec:
             allowed = ("play",)
         elif scenario.decision_type == "discard":
             allowed = ("discard",)
+        elif scenario.decision_type == "shop":
+            allowed = ("choose_joker", "sell_joker", "reroll_shop")
     return ResetSpec(
         seed=scenario.seed,
         hand_ids=scenario.initial_state.hand_ids,
@@ -115,6 +117,8 @@ def to_reset_spec(scenario: Scenario) -> ResetSpec:
         hands_left=scenario.initial_state.hands_left,
         discards_left=scenario.initial_state.discards_left,
         target=scenario.initial_state.target,
+        money=scenario.initial_state.money,
+        shop_open=scenario.initial_state.shop_open,
         scenario_id=scenario.scenario_id,
     )
 

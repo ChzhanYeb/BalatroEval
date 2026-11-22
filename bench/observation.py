@@ -3,21 +3,25 @@
 设计取舍：
 - Observation 是**给 Agent 的公开视图**，不包含 oracle 结果、内部 RNG、完整牌堆顺序；
 - 手牌给稳定 ID + 展示标签 + 点数筹码，Agent 用 ID 组动作；
-- 合法动作只给**计数**（8 张手牌时 play/discard 各 218），不给完整 436 条列表：
-  否则单次 observation 会吞掉小模型的上下文预算。需要完整动作集时用
+- **金钱与商店是公开信息**：``economy`` 给当前钱、利息档位、上次结算明细；
+  ``shop`` 给每个报价的 Joker、价格、是否买得起、reroll 价与已拥有 Joker 的卖价；
+- 合法动作只给**计数**（8 张手牌时 play/discard 各 218），不给完整列表：否则单次
+  observation 会吞掉小模型的上下文预算。需要完整动作集时用
   ``Environment.legal_actions()``（离线评测/Oracle 用，不交给 Agent）；
 - 文本渲染目标 ≤ 250 token（按 “字符数/4” 粗估），用于 MCP ``get_state``。
 
-Observation schema（``OBSERVATION_SCHEMA_VERSION=1``）是工具契约的一部分，字段名不得
+Observation schema（``OBSERVATION_SCHEMA_VERSION=2``）是工具契约的一部分，字段名不得
 随实现漂移；新增字段必须升版本并在 docs/implementation/data-schema.md 记录。
+v2 变更：新增 ``economy`` / ``shop``；``legal_action_counts`` 增加商店动作计数；
+移除 v1 的顶层 ``shop_options``（改由 ``shop.offers`` 提供价格信息）。
 """
 from __future__ import annotations
 
-from .actions import legal_discards, legal_plays
+from .actions import legal_discards, legal_plays, shop_actions
 from .model import GameState
-from .rules_version import VANILLA_SUBSET_V1, Ruleset
+from .rules_version import VANILLA_SUBSET_V1, Ruleset, interest_for, joker_price, sell_value
 
-OBSERVATION_SCHEMA_VERSION = 1
+OBSERVATION_SCHEMA_VERSION = 2
 
 
 def build_observation(
@@ -29,9 +33,9 @@ def build_observation(
 
     Args:
         state: 当前状态。
-        ruleset: 规则集（用于读取盲注名称与规则版本）。
+        ruleset: 规则集（用于读取盲注名称、经济常量与规则版本）。
         allowed_action_kinds: 场景约束的动作种类；None 表示不限制。用于告诉 Agent
-            “这是出牌决策点，还是弃牌决策点”。
+            “这是出牌决策点，还是弃牌/商店决策点”。
 
     Returns:
         JSON 可序列化 dict；字段见模块 docstring。
@@ -41,6 +45,7 @@ def build_observation(
     spec = ruleset.blind(state.blind_idx)
     play_count = 0
     discard_count = 0
+    shop_counts = {"choose_joker": 0, "sell_joker": 0, "reroll_shop": 0}
     if state.phase == "play":
         play_count = len(legal_plays(state.hand, ruleset.max_play_cards))
         discard_count = len(legal_discards(state.hand, state.discards_left,
@@ -50,6 +55,14 @@ def build_observation(
                 play_count = 0
             if "discard" not in allowed_action_kinds:
                 discard_count = 0
+    elif state.phase == "shop":
+        actions = shop_actions(state)
+        for action in actions:
+            if action.kind in shop_counts:
+                shop_counts[action.kind] += 1
+        if allowed_action_kinds is not None:
+            shop_counts = {kind: (count if kind in allowed_action_kinds else 0)
+                           for kind, count in shop_counts.items()}
     return {
         "schema_version": OBSERVATION_SCHEMA_VERSION,
         "rules_version": state.rules_version,
@@ -73,6 +86,33 @@ def build_observation(
             "boss_effect": state.boss_effect,
             "boss_effect_implemented": state.boss_effect is None,
         },
+        "economy": {
+            "money": state.money,
+            "interest_per": ruleset.interest_per,
+            "interest_cap": ruleset.interest_cap,
+            "next_interest": interest_for(state.money, ruleset),
+            "hand_bonus": ruleset.hand_bonus,
+            "discard_bonus": ruleset.discard_bonus,
+            "last_payout": state.last_payout,
+        },
+        "shop": {
+            "open": state.phase == "shop",
+            "offers": [
+                {
+                    "index": index,
+                    "joker": offer.to_dict(),
+                    "price": joker_price(offer),
+                    "affordable": state.money >= joker_price(offer),
+                }
+                for index, offer in enumerate(state.shop_options)
+            ],
+            "reroll_cost": state.reroll_cost,
+            "sell_values": [
+                {"index": index, "joker_id": joker.jid, "sell_value": sell_value(joker)}
+                for index, joker in enumerate(state.jokers)
+            ],
+            "free_slots": max(0, state.joker_slots - len(state.jokers)),
+        },
         "hand": [
             {
                 "id": card.card_id,
@@ -90,9 +130,13 @@ def build_observation(
         "discard_count": len(state.discard_pile),
         "jokers": [joker.to_dict() for joker in state.jokers],
         "joker_slots": state.joker_slots,
-        "shop_options": [joker.to_dict() for joker in state.shop_options],
-        "legal_action_counts": {"play": play_count, "discard": discard_count},
+        "legal_action_counts": {
+            "play": play_count,
+            "discard": discard_count,
+            **shop_counts,
+        },
     }
+
 
 
 def render_observation(observation: dict, max_chars: int = 1000) -> str:
@@ -109,13 +153,35 @@ def render_observation(observation: dict, max_chars: int = 1000) -> str:
     """
     episode = observation["episode"]
     blind = observation["blind"]
+    economy = observation.get("economy", {})
     lines = [
-        f"rules={observation['rules_version']} phase={episode['phase']} step={episode['step']}",
+        f"rules={observation['rules_version']} phase={episode['phase']} step={episode['step']} "
+        f"money=${economy.get('money', 0)}",
         f"blind={blind['name']}({blind['kind']}) target={blind['target']} score={blind['score']} "
         f"need={blind['score_needed']} hands={blind['hands_left']} discards={blind['discards_left']}",
     ]
     if blind["boss_effect"] is not None:
         lines.append(f"boss_effect={blind['boss_effect']} (NOT implemented in this subset)")
+    if economy.get("last_payout"):
+        payout = economy["last_payout"]
+        lines.append(
+            f"last_payout=${payout['total']} (blind {payout['blind_reward']} "
+            f"+ hands {payout['hand_bonus']} + discards {payout['discard_bonus']} "
+            f"+ interest {payout['interest']})"
+        )
+    shop = observation.get("shop") or {}
+    if shop.get("open"):
+        offers = " ".join(
+            f"[{item['index']}]{item['joker']['name']}(${item['price']}"
+            f"{'' if item['affordable'] else ',TOO EXPENSIVE'})"
+            for item in shop.get("offers", [])
+        )
+        lines.append(f"shop: {offers or 'empty'} reroll=${shop.get('reroll_cost', 0)} "
+                     f"free_slots={shop.get('free_slots', 0)}")
+        if shop.get("sell_values"):
+            sells = " ".join(f"[{item['index']}]{item['joker_id']}(${item['sell_value']})"
+                             for item in shop["sell_values"])
+            lines.append(f"sell: {sells}")
     hand_text = " ".join(f"{c['label']}={c['id']}({c['chips']})" for c in observation["hand"])
     lines.append(f"hand({len(observation['hand'])}/{observation['hand_size_limit']}): {hand_text}")
     if observation["jokers"]:

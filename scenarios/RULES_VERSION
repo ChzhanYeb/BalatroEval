@@ -2,14 +2,14 @@
 #
 # 读取约定：
 #   1) **机器可读权威**是 `bench/rules_version.py` 的 `VANILLA_SUBSET_V1`；本文件是
-#      人类可读镜像，`scenarios/rules_v1.json` 是同一份声明的 JSON 镜像。
+#      人类可读镜像，`scenarios/rules_v2.json` 是同一份声明的 JSON 镜像。
 #      测试 `tests/test_rules_declaration.py` 断言三者一致（防止文档与代码漂移）。
 #   2) 规则实现完成 ≠ 与真游戏对齐验证完成。`verification_status` 恒为 NOT_VERIFIED，
 #      直到 docs/engine-fidelity.md 的 A2/A3 有实测行并签核。
 #   3) 历史 L0（W2-v2.1）声明保留在文件末尾 `legacy_w2_l0` 段，**不删除、不改写**；
 #      它不是当前生效配置。
 
-rules_version: vanilla_1.0.1o_subset_v1
+rules_version: vanilla_1.0.1o_subset_v2
 target_game_version: 1.0.1o
 project_name: BalatroEval
 
@@ -24,12 +24,27 @@ hand_size: 8
 joker_slots: 5
 max_play_cards: 5
 max_discard_cards: 5
-shop_enabled: false            # vanilla 商店依赖金钱（excluded）；扩展见 extensions
+shop_enabled: true             # v2：商店是基础规则（Small/Big 之后，花真钱）
 
 blinds:
-  - {index: 0, kind: small, name: Small Blind, base_score: 300, multiplier: "1/1", target: 300}
-  - {index: 1, kind: big,   name: Big Blind,   base_score: 300, multiplier: "3/2", target: 450}
-  - {index: 2, kind: boss,  name: Boss Blind,  base_score: 300, multiplier: "2/1", target: 600}
+  - {index: 0, kind: small, name: Small Blind, base_score: 300, multiplier: "1/1", target: 300, reward_money: 3}
+  - {index: 1, kind: big,   name: Big Blind,   base_score: 300, multiplier: "3/2", target: 450, reward_money: 4}
+  - {index: 2, kind: boss,  name: Boss Blind,  base_score: 300, multiplier: "2/1", target: 600, reward_money: 5}
+
+# --- 经济（v2 新增，全部整数、可判定） ----------------------------------------
+economy:
+  starting_money: 4            # Red Deck 起始金钱
+  blind_reward_money: {small: 3, big: 4, boss: 5}
+  hand_bonus: 1                # 每剩余 1 手 +$1
+  discard_bonus: 1             # 每未用 1 弃牌 +$1
+  interest_per: 5              # 每 $5 得 $1
+  interest_cap: 5              # 利息上限 $5
+  interest_ordering: before_payout   # 用入账前的 money 算利息（原版顺序 UNVERIFIED）
+  shop_offer_count: 2          # 每次商店 2 个 Joker 报价（vanilla 2 个卡位）
+  joker_price_by_rarity: {Common: 5, Uncommon: 7, Rare: 9, Legendary: 10}  # 固定中值，非原版浮动
+  sell_refund: half_price_min_1
+  reroll: {base_cost: 5, increment: 1}
+  shop_when: after_small_and_big   # Boss 通关即 win，不进商店
 
 # --- 状态声明 ---------------------------------------------------------------
 implementation_status: IMPLEMENTED   # 代码路径存在且被单测覆盖（≠ 与真游戏一致）
@@ -45,37 +60,47 @@ implemented: [deck_standard_52, deck_red_plus1_discard, stake_white, hand_size_8
   draw_and_reshuffle_discard_pile, hand_types_9_regular, hand_types_3_secret,
   hand_base_chips_mult_level1, scoring_card_filtering, jokers_8_named_vanilla,
   joker_conditions_contains_pair_contains_three_cards_le_3,
-  blind_progression_and_win_loss, deterministic_rng_state, snapshot_restore]
+  blind_progression_and_win_loss, deterministic_rng_state, snapshot_restore,
+  money_start_4, blind_reward_money_3_4_5, hand_bonus_1_per_hand,
+  discard_bonus_1_per_unused_discard, interest_1_per_5_cap_5,
+  shop_after_small_and_big, shop_2_offers_fixed_price_by_rarity,
+  shop_buy_sell_reroll_leave]
 
 # --- 未验证（unverified，仍不得写成事实） -----------------------------------
 unverified: [final_score_rounding_floor_candidate,
   contains_relation_for_four_kind_and_five_kind,
   cross_blind_hand_redraw_policy, boss_blind_effect_absent,
-  hand_level_greater_than_1, real_game_single_step_score_equality_A2]
+  hand_level_greater_than_1, real_game_single_step_score_equality_A2,
+  interest_ordering_before_payout, joker_price_fixed_mid_of_vanilla_range,
+  shop_offer_pool_uniform_no_rarity_weights, shop_rng_not_vanilla,
+  sold_joker_may_reappear_after_reroll]
 
 # --- 明确排除（excluded） ---------------------------------------------------
-excluded: [money, interest, shop_economy, boss_effects,
-  consumables_tarot_planet_spectral, vouchers, booster_packs,
+excluded: [boss_effects, consumables_tarot_planet_spectral, vouchers, booster_packs,
   card_enhancements, card_seals, card_editions, multi_deck, multi_stake,
   tags_and_blind_skip, endless_mode, hand_levels_gt1, retriggers,
   blueprint_brainstorm, joker_editions, negative_joker_slots,
   held_in_hand_card_effects, stone_gold_glass_steel_lucky_cards]
 
-# --- Benchmark 扩展（非 vanilla，默认关闭，必须由场景显式声明） --------------
-extensions:
-  free_joker_choice: "盲注之间免费 3 选 1 Joker（无金钱）；不是 vanilla，不得作为对齐证据"
+# --- Benchmark 扩展（v2 起为空） --------------------------------------------
+extensions: {}
+retired_extensions:
+  free_joker_choice: "v2 起退役：免费三选一已被付费商店取代；场景声明该扩展会被拒绝"
 
 # --- 如何复核 ---------------------------------------------------------------
 evidence:
-  tests: tests/test_w2_rules.py, tests/test_environment.py, tests/test_scenarios.py,
-    tests/test_runtime.py, tests/test_properties.py, tests/test_rules_declaration.py
-  docs: docs/implementation/rules-implementation.md, docs/implementation/testing-and-validation.md
+  tests: tests/test_w2_rules.py, tests/test_environment.py, tests/test_economy.py,
+    tests/test_scenarios.py, tests/test_runtime.py, tests/test_properties.py,
+    tests/test_rules_declaration.py
+  docs: docs/implementation/rules-implementation.md, docs/implementation/implementation-status.md
   real_game: "none (A2/A3 not executed; see docs/engine-fidelity.md)"
 
 notes:
   - "Implemented != verified; do not claim vanilla alignment."
   - "Boss Blind is score-only in this subset; boss effects are excluded and rejected by the scenario validator."
-  - "Shop is disabled by default; free_joker_choice is a benchmark extension."
+  - "Money is the only cross-blind resource: hands/discards still reset to 4/4 every blind."
+  - "Interest is computed on money before the payout; the vanilla ordering is UNVERIFIED."
+  - "Shop prices are fixed per rarity and offers are a uniform sample; neither matches vanilla weights/prices exactly."
   - "RNG is deterministic within this project only; not the vanilla RNG."
 
 # --- 历史声明（W2 L0，保留原文，不是当前配置） ------------------------------
@@ -94,3 +119,4 @@ legacy_w2_l0:
     hand_levels_gt1]
   fidelity: "score-level only; custom subset formula; RNG NOT replicated"
   fidelity_status: NOT_VERIFIED
+  # 历史段里的 money/interest 是 v1 之前的状态；v2 已实现经济，见上方 economy 段。

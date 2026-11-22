@@ -9,9 +9,16 @@ from bench.jokers import VANILLA_JOKERS
 from bench.rules_version import (
     ANTE1_BLINDS,
     HAND_BASE_SCORE,
-    SHOP_EXTENSION,
+    INTEREST_CAP,
+    INTEREST_PER,
+    JOKER_PRICE_BY_RARITY,
+    SHOP_OFFER_COUNT,
+    STARTING_MONEY,
     VANILLA_SUBSET_V1,
+    interest_for,
+    joker_price,
     ruleset_for,
+    sell_value,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,18 +26,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TestRulesDeclaration(unittest.TestCase):
     def test_json_mirror_matches_ruleset(self):
-        mirror = json.loads((ROOT / "scenarios" / "rules_v1.json").read_text(encoding="utf-8"))
+        mirror = json.loads((ROOT / "scenarios" / "rules_v2.json").read_text(encoding="utf-8"))
         self.assertEqual(mirror, VANILLA_SUBSET_V1.to_dict())
 
     def test_rules_version_doc_mentions_active_version(self):
         text = (ROOT / "scenarios" / "RULES_VERSION").read_text(encoding="utf-8")
-        self.assertIn("rules_version: vanilla_1.0.1o_subset_v1", text)
+        self.assertIn("rules_version: vanilla_1.0.1o_subset_v2", text)
         self.assertIn("verification_status: NOT_VERIFIED", text)
         self.assertIn("legacy_w2_l0", text)  # 历史声明保留
+        self.assertIn("starting_money: 4", text)
+        self.assertIn("interest_cap: 5", text)
 
-    def test_blind_targets_are_ante1(self):
+    def test_blind_targets_and_rewards_are_ante1(self):
         self.assertEqual([b.target for b in ANTE1_BLINDS], [300, 450, 600])
         self.assertEqual([b.kind for b in ANTE1_BLINDS], ["small", "big", "boss"])
+        self.assertEqual([b.reward_money for b in ANTE1_BLINDS], [3, 4, 5])
         self.assertEqual({b.base_score for b in ANTE1_BLINDS}, {300})
         # 旧 L0 的 300/800/2000 不得再作为三盲注
         self.assertNotIn(800, [b.target for b in ANTE1_BLINDS])
@@ -39,8 +49,34 @@ class TestRulesDeclaration(unittest.TestCase):
         rules = VANILLA_SUBSET_V1
         self.assertEqual((rules.hands_per_blind, rules.discards_per_blind), (4, 4))
         self.assertEqual((rules.hand_size, rules.joker_slots), (8, 5))
-        self.assertEqual(rules.deck, "red")
-        self.assertEqual(rules.stake, "white")
+        self.assertEqual((rules.deck, rules.stake), ("red", "white"))
+        self.assertTrue(rules.shop_enabled)
+
+    def test_economy_constants(self):
+        rules = VANILLA_SUBSET_V1
+        self.assertEqual(rules.starting_money, STARTING_MONEY)
+        self.assertEqual((rules.interest_per, rules.interest_cap), (INTEREST_PER, INTEREST_CAP))
+        self.assertEqual(rules.shop_offer_count, SHOP_OFFER_COUNT)
+        self.assertEqual(rules.reroll_base_cost, 5)
+        self.assertEqual(rules.reroll_increment, 1)
+        self.assertEqual(JOKER_PRICE_BY_RARITY["Common"], 5)
+        self.assertEqual(joker_price("Rare"), 9)
+        with self.assertRaises(ValueError):
+            joker_price("Unknown")
+
+    def test_interest_brackets_and_cap(self):
+        self.assertEqual(interest_for(0), 0)
+        self.assertEqual(interest_for(4), 0)
+        self.assertEqual(interest_for(5), 1)
+        self.assertEqual(interest_for(24), 4)
+        self.assertEqual(interest_for(25), 5)
+        self.assertEqual(interest_for(999), 5)  # cap $5
+
+    def test_sell_value_is_half_price_min_one(self):
+        common = VANILLA_JOKERS[0]
+        rare = [j for j in VANILLA_JOKERS if j.rarity == "Rare"][0]
+        self.assertEqual(sell_value(common), 2)
+        self.assertEqual(sell_value(rare), 4)
 
     def test_hand_base_table_matches_docs(self):
         expected = {
@@ -67,23 +103,36 @@ class TestRulesDeclaration(unittest.TestCase):
         self.assertEqual(len(VANILLA_JOKERS), 8)
 
     def test_exclusions_include_known_gaps(self):
-        for name in ("money", "shop_economy", "boss_effects", "consumables_tarot_planet_spectral",
+        for name in ("boss_effects", "consumables_tarot_planet_spectral",
                      "card_enhancements", "hand_levels_gt1"):
             self.assertIn(name, VANILLA_SUBSET_V1.excluded)
 
-    def test_ruleset_extension_only_shop(self):
-        enabled = ruleset_for([SHOP_EXTENSION])
-        self.assertTrue(enabled.shop_enabled)
-        self.assertFalse(VANILLA_SUBSET_V1.shop_enabled)
+    def test_economy_is_no_longer_excluded(self):
+        # v2 起经济已实现：这三个 key 必须从 excluded 消失，否则声明自相矛盾。
+        for name in ("money", "interest", "shop_economy"):
+            self.assertNotIn(name, VANILLA_SUBSET_V1.excluded)
+        self.assertIn("money_start_4", VANILLA_SUBSET_V1.implemented)
+        self.assertIn("interest_1_per_5_cap_5", VANILLA_SUBSET_V1.implemented)
+
+    def test_economy_claims_are_marked_unverified(self):
+        # 经济口径没做真游戏实测，必须留在 unverified 里，不能写成事实。
+        for name in ("interest_ordering_before_payout",
+                     "joker_price_fixed_mid_of_vanilla_range",
+                     "shop_offer_pool_uniform_no_rarity_weights"):
+            self.assertIn(name, VANILLA_SUBSET_V1.unverified)
+
+    def test_no_extensions_are_supported(self):
+        self.assertIs(ruleset_for([]), VANILLA_SUBSET_V1)
+        self.assertIs(ruleset_for(None), VANILLA_SUBSET_V1)
         with self.assertRaises(ValueError):
             ruleset_for(["unknown_extension"])
+        with self.assertRaises(ValueError):
+            ruleset_for(["free_joker_choice"])  # v2 已退役
 
     def test_signature_is_stable_and_content_sensitive(self):
         sig = VANILLA_SUBSET_V1.signature()
         self.assertEqual(len(sig), 64)
         self.assertEqual(sig, VANILLA_SUBSET_V1.signature())
-        modified = ruleset_for([SHOP_EXTENSION])
-        self.assertNotEqual(sig, modified.signature())
 
 
 if __name__ == "__main__":

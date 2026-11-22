@@ -9,10 +9,11 @@ Scenario 是评测的最小单位，对应两种用法：
 - 场景数据只描述**初始状态与约束**，不包含 oracle 结果（oracle 由评测层现场计算，
   避免把答案写进数据）；
 - 场景必须声明 ``rules_version``；规则不匹配时校验失败（不允许静默降级）；
-- 场景显式声明使用哪些 benchmark 扩展（如 ``free_joker_choice``），未声明的扩展
-  一律不启用。
+- v2 起不再有 benchmark 扩展（免费三选一退役）；商店是基础规则，用 ``initial_state``
+  的 ``money`` / ``shop_open`` 构造经济决策点。
 
-Schema 版本：``SCENARIO_SCHEMA_VERSION = 1``（字段变更必须升版本并更新
+Schema 版本：``SCENARIO_SCHEMA_VERSION = 2``（v2 新增 ``initial_state.money`` 与
+``initial_state.shop_open``，以及 ``decision_type="shop"``；字段变更必须升版本并更新
 docs/implementation/data-schema.md）。
 """
 from __future__ import annotations
@@ -23,9 +24,9 @@ from typing import Any
 from bench.errors import BAD_REQUEST, InvalidActionError
 from bench.rules_version import VANILLA_SUBSET_V1
 
-SCENARIO_SCHEMA_VERSION = 1
-VALID_DECISION_TYPES = ("episode", "play", "discard")
-VALID_GOAL_TYPES = ("clear_ante1", "maximize_score", "reach_score")
+SCENARIO_SCHEMA_VERSION = 2
+VALID_DECISION_TYPES = ("episode", "play", "discard", "shop")
+VALID_GOAL_TYPES = ("clear_ante1", "maximize_score", "reach_score", "maximize_money")
 VALID_ORIGINS = ("synthetic_dev", "real_capture", "real_counterfactual")
 
 
@@ -35,7 +36,7 @@ class Goal:
 
     Attributes:
         type: ``clear_ante1``（清完 Ante 1 三盲注）/ ``maximize_score``（尽量高分）/
-            ``reach_score``（达到 target）。
+            ``reach_score``（达到 target）/ ``maximize_money``（经济决策点：尽量多钱）。
         target: ``reach_score`` 必填；其余可选，用于记录期望分。
     """
 
@@ -57,6 +58,8 @@ class InitialState:
         total_score: 当前盲注已得分。
         hands_left / discards_left: 资源覆盖；None 表示规则默认。
         target: 目标分覆盖；None 表示按盲注定义。
+        money: 初始金钱覆盖；None 表示规则默认（Red Deck $4）。
+        shop_open: True 表示场景直接从商店开始（经济决策点）。
     """
 
     hand_ids: tuple[str, ...] | None = None
@@ -66,6 +69,8 @@ class InitialState:
     hands_left: int | None = None
     discards_left: int | None = None
     target: int | None = None
+    money: int | None = None
+    shop_open: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -76,6 +81,8 @@ class InitialState:
             "hands_left": self.hands_left,
             "discards_left": self.discards_left,
             "target": self.target,
+            "money": self.money,
+            "shop_open": self.shop_open,
         }
 
 
@@ -113,7 +120,7 @@ class Scenario:
         goal: 目标。
         initial_state: 初始状态覆盖。
         constraints: 约束。
-        extensions: benchmark 扩展名列表（如 free_joker_choice）。
+        extensions: benchmark 扩展名列表；v2 起**必须为空**（免费三选一已退役）。
         boss_blind: Boss 盲注声明；``effect`` 非空表示请求未实现的效果（会被拒）。
         metadata: 描述/标签/捕获 ID 等自由字段（只读展示，不参与规则）。
     """
@@ -177,6 +184,8 @@ class Scenario:
                 hands_left=_opt_int(init_raw.get("hands_left")),
                 discards_left=_opt_int(init_raw.get("discards_left")),
                 target=_opt_int(init_raw.get("target")),
+                money=_opt_int(init_raw.get("money")),
+                shop_open=bool(init_raw.get("shop_open", False)),
             )
             allowed = cons_raw.get("allowed_action_kinds")
             constraints = Constraints(

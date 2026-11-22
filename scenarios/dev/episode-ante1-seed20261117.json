@@ -1,7 +1,7 @@
 {
-  "scenario_schema_version": 1,
+  "scenario_schema_version": 2,
   "scenario_id": "dev-episode-ante1-red-seed20261117",
-  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "rules_version": "vanilla_1.0.1o_subset_v2",
   "seed": 20261117,
   "origin": "synthetic_dev",
   "decision_type": "episode",
@@ -13,14 +13,16 @@
     "total_score": null,
     "hands_left": null,
     "discards_left": null,
-    "target": null
+    "target": null,
+    "money": null,
+    "shop_open": false
   },
   "constraints": {"max_steps": 120, "allowed_action_kinds": null},
   "extensions": [],
   "boss_blind": {"name": "Boss Blind (effect disabled)", "effect": null},
   "metadata": {
-    "description": "Full Ante 1 episode on Red Deck / White Stake, seeded shuffle. Boss effect disabled by subset policy.",
-    "tags": ["dev", "episode", "ante1"],
+    "description": "Full Ante 1 episode on Red Deck / White Stake with the v2 economy: start $4, blind rewards, interest, and a paid 2-offer shop after Small/Big. Boss effect disabled by subset policy.",
+    "tags": ["dev", "episode", "ante1", "economy"],
     "boss_effect": "NOT_IMPLEMENTED"
   }
 }

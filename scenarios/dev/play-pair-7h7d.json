@@ -1,7 +1,7 @@
 {
-  "scenario_schema_version": 1,
+  "scenario_schema_version": 2,
   "scenario_id": "dev-play-pair-7h7d",
-  "rules_version": "vanilla_1.0.1o_subset_v1",
+  "rules_version": "vanilla_1.0.1o_subset_v2",
   "seed": 42,
   "origin": "synthetic_dev",
   "decision_type": "play",
@@ -13,7 +13,9 @@
     "total_score": 0,
     "hands_left": 4,
     "discards_left": 4,
-    "target": 300
+    "target": 300,
+    "money": null,
+    "shop_open": false
   },
   "constraints": {"max_steps": 1, "allowed_action_kinds": ["play"]},
   "extensions": [],

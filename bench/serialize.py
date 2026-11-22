@@ -11,8 +11,10 @@
 - 哈希使用 JSON 规范化（sort_keys + 紧凑分隔符）后 sha256，不受 dict 插入顺序影响。
 
 快照版本（``SNAPSHOT_SCHEMA_VERSION``）：
-- 1：rules_version / 完整状态 / cards 以稳定 ID 表示。
-字段变更必须升版本并在 docs/implementation/data-schema.md 记录。
+- 1：rules_version / 完整状态 / cards 以稳定 ID 表示（v1 时代，无经济字段）。
+- 2：新增 ``money`` / ``reroll_cost`` / ``last_payout``（economy v2）。
+字段变更必须升版本并在 docs/implementation/data-schema.md 记录；旧版本快照会被显式
+拒绝（经济字段缺失时无法还原出可信状态，宁可报错也不猜）。
 """
 from __future__ import annotations
 
@@ -24,13 +26,13 @@ from .cards import card_from_stable_id
 from .errors import BAD_REQUEST, InvalidActionError
 from .jokers import CATALOG_BY_ID
 from .model import Card, GameState, Joker
-from .rules_version import VANILLA_SUBSET_V1
+from .rules_version import REROLL_BASE_COST, STARTING_MONEY, VANILLA_SUBSET_V1
 
-SNAPSHOT_SCHEMA_VERSION = 1
+SNAPSHOT_SCHEMA_VERSION = 2
 
 
 def state_to_dict(state: GameState) -> dict:
-    """把完整状态导出为 JSON 可序列化 dict（含全部牌面与 RNG 状态）。
+    """把完整状态导出为 JSON 可序列化 dict（含全部牌面、经济与 RNG 状态）。
 
     Returns:
         dict；键集合即快照 schema（见 docs/implementation/data-schema.md）。
@@ -49,6 +51,9 @@ def state_to_dict(state: GameState) -> dict:
         "total_score": state.total_score,
         "hands_left": state.hands_left,
         "discards_left": state.discards_left,
+        "money": state.money,
+        "reroll_cost": state.reroll_cost,
+        "last_payout": state.last_payout,
         "steps": state.steps,
         "phase": state.phase,
         "outcome": state.outcome,
@@ -119,6 +124,9 @@ def state_from_dict(data: dict) -> GameState:
         total_score=int(data.get("total_score", 0)),
         hands_left=int(data["hands_left"]),
         discards_left=int(data["discards_left"]),
+        money=int(data.get("money", STARTING_MONEY)),
+        reroll_cost=int(data.get("reroll_cost", REROLL_BASE_COST)),
+        last_payout=data.get("last_payout"),
         steps=int(data.get("steps", 0)),
         phase=data["phase"],
         outcome=data.get("outcome"),

@@ -1,11 +1,14 @@
-"""Agent 工具层：get_state / play_cards / discard_cards / choose_joker / reset_episode。
+"""Agent 工具层：get_state / play_cards / discard_cards / choose_joker / sell_joker /
+reroll_shop / reset_episode。
 
 职责：把 ``Environment`` 包装成**面向 Agent 的薄壳**：
 - 校验输入形状（不重复实现规则；规则判定仍在 engine/hand_eval）；
 - 把 ``BenchError`` 转成统一错误码 + 结构化 JSON，**不抛 traceback 给 Agent**；
 - 返回 observation + 紧凑文本 + 奖励/终止标志，供 MCP 或本地 runner 复用。
 
-工具契约（与 plan D6 对齐）：4 个游戏工具 + 1 个控制工具（reset_episode）。
+工具契约（与 plan D6 对齐）：6 个游戏工具 + 1 个控制工具（reset_episode）。
+商店阶段（Small/Big 之后）用 ``choose_joker(index)`` 买入、``choose_joker(None)`` 离开、
+``sell_joker(index)`` 卖出、``reroll_shop()`` 换报价。
 所有返回都是 JSON 可序列化 dict；``ok=false`` 时 ``error.code`` 取值见
 ``bench.errors.ERROR_CODES``。
 
@@ -131,9 +134,11 @@ def discard_cards(session: GameSession, card_ids) -> dict:
 
 
 def choose_joker(session: GameSession, index: int | None = None) -> dict:
-    """商店扩展工具：选择第 index 个候选（None=跳过），随后进入下一盲注。
+    """商店工具：买入第 index 个报价（花钱），``None`` 表示离开商店。
 
-    仅当 ruleset 启用 ``free_joker_choice`` 扩展时可用；否则返回 NOT_ALLOWED。
+    只有 shop 阶段（Small/Big 通关后）可用；买不起 / 槽位满返回 ``NO_RESOURCE``，
+    非商店阶段返回 ``INVALID_STATE``。买入后仍停在商店，可继续买/卖/reroll，最后
+    显式离开才进入下一盲注。
     """
     def _impl() -> dict:
         assert session.env is not None
@@ -143,12 +148,37 @@ def choose_joker(session: GameSession, index: int | None = None) -> dict:
     return _run(session, _impl)
 
 
+def sell_joker(session: GameSession, index: int) -> dict:
+    """商店工具：卖掉第 index 个已拥有的 Joker，返还半价并腾出槽位。"""
+    def _impl() -> dict:
+        assert session.env is not None
+        result = session.env.step({"kind": "sell_joker", "joker_index": index})
+        return _state_payload(session.env, 0, result.terminated, result.truncated, result.info)
+
+    return _run(session, _impl)
+
+
+def reroll_shop(session: GameSession) -> dict:
+    """商店工具：花 ``reroll_cost`` 换一批报价（同一商店内每 reroll 一次涨价 $1）。"""
+    def _impl() -> dict:
+        assert session.env is not None
+        result = session.env.step({"kind": "reroll_shop"})
+        return _state_payload(session.env, 0, result.terminated, result.truncated, result.info)
+
+    return _run(session, _impl)
+
+
 def reset_episode(session: GameSession, *, seed: int | None = None,
                   hand_ids=None, joker_ids=(), blind_idx: int | None = None,
                   total_score: int | None = None, hands_left: int | None = None,
                   discards_left: int | None = None, target: int | None = None,
+                  money: int | None = None, shop_open: bool = False,
                   allowed_action_kinds=None, max_steps: int | None = None) -> dict:
-    """重置到新 episode（可选固定手牌/Joker/盲注/资源，用于决策点场景）。
+    """重置到新 episode（可选固定手牌/Joker/盲注/资源/金钱，用于决策点场景）。
+
+    Args:
+        money: 覆盖初始金钱（商店决策点用）。
+        shop_open: True 时 reset 后直接进入商店。
 
     Returns:
         新 episode 的 observation。
@@ -167,6 +197,8 @@ def reset_episode(session: GameSession, *, seed: int | None = None,
             hands_left=hands_left,
             discards_left=discards_left,
             target=target,
+            money=money,
+            shop_open=bool(shop_open),
         )
         observation = session.env.reset(spec)
         return _ok({"observation": observation,
@@ -202,15 +234,27 @@ TOOL_SPECS: dict[str, dict] = {
         },
     },
     "choose_joker": {
-        "description": "Shop extension only: pick a joker option index, or null to skip.",
+        "description": "Shop: buy the joker offer at index (costs money); null means leave the shop.",
         "parameters": {
             "type": "object",
             "properties": {"index": {"type": ["integer", "null"]}},
             "required": ["index"], "additionalProperties": False,
         },
     },
+    "sell_joker": {
+        "description": "Shop: sell the owned joker at slot index for half its price.",
+        "parameters": {
+            "type": "object",
+            "properties": {"index": {"type": "integer", "minimum": 0}},
+            "required": ["index"], "additionalProperties": False,
+        },
+    },
+    "reroll_shop": {
+        "description": "Shop: pay the reroll cost to draw a new set of offers (+$1 each reroll).",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
     "reset_episode": {
-        "description": "Start a new episode, optionally with a fixed hand/seed/state.",
+        "description": "Start a new episode, optionally with a fixed hand/seed/state/money.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -222,6 +266,8 @@ TOOL_SPECS: dict[str, dict] = {
                 "hands_left": {"type": "integer", "minimum": 0},
                 "discards_left": {"type": "integer", "minimum": 0},
                 "target": {"type": "integer", "minimum": 1},
+                "money": {"type": "integer", "minimum": 0},
+                "shop_open": {"type": "boolean"},
                 "allowed_action_kinds": {"type": "array", "items": {"type": "string"}},
                 "max_steps": {"type": "integer", "minimum": 1},
             },
@@ -246,6 +292,10 @@ def dispatch_tool(session: GameSession, name: str, arguments: dict | None = None
         return discard_cards(session, args.get("card_ids"))
     if name == "choose_joker":
         return choose_joker(session, args.get("index"))
+    if name == "sell_joker":
+        return sell_joker(session, args.get("index"))
+    if name == "reroll_shop":
+        return reroll_shop(session)
     if name == "reset_episode":
         return reset_episode(session, **{k: v for k, v in args.items() if k in TOOL_SPECS[name]["parameters"]["properties"]})
     return _error(InvalidActionError(BAD_REQUEST, f"unknown tool: {name!r}"))

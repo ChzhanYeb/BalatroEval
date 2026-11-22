@@ -5,7 +5,7 @@ import random
 import unittest
 
 from bench.actions import Action, legal_actions
-from bench.engine import new_game, discard, play
+from bench.engine import apply_action, new_game, discard, play
 from bench.environment import Environment, ResetSpec
 from bench.serialize import state_hash, state_to_dict
 from bench.model import Card
@@ -28,9 +28,13 @@ class TestInvariants(unittest.TestCase):
                     state, _ = play(state, action.card_ids)
                 elif action.kind == "discard":
                     state = discard(state, action.card_ids)
-                else:  # 商店默认关闭，不应出现
-                    self.fail("unexpected action kind")
+                elif action.kind in ("choose_joker", "sell_joker", "reroll_shop"):
+                    # v2 商店动作（买/卖/reroll/离开）：只验证不变量，不评估策略
+                    state = apply_action(state, action)[0]
+                else:
+                    self.fail(f"unexpected action kind: {action.kind}")
                 self.assertEqual(state.deck_total, 52)
+                self.assertGreaterEqual(state.money, 0)
 
     def test_score_is_floor_of_chips_times_mult(self):
         cases = [

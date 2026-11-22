@@ -1,0 +1,27 @@
+{
+  "scenario_schema_version": 2,
+  "scenario_id": "dev-episode-economy-seed20261112",
+  "rules_version": "vanilla_1.0.1o_subset_v2",
+  "seed": 20261112,
+  "origin": "synthetic_dev",
+  "decision_type": "episode",
+  "goal": {"type": "clear_ante1", "target": null},
+  "initial_state": {
+    "hand_ids": null,
+    "joker_ids": [],
+    "blind_idx": 0,
+    "total_score": null,
+    "hands_left": null,
+    "discards_left": null,
+    "target": null,
+    "money": null,
+    "shop_open": false
+  },
+  "constraints": {"max_steps": 160, "allowed_action_kinds": null},
+  "extensions": [],
+  "boss_blind": {"name": "Boss Blind (effect disabled)", "effect": null},
+  "metadata": {
+    "description": "Economy integration case: the O1-greedy reference clears Ante 1 on this seed and buys four jokers in the two paid shops (win / 12 steps / total 1672 / money 14). The paid shop is a v2 base rule, not a benchmark extension. This episode does NOT model interest-seeking play.",
+    "tags": ["dev", "episode", "economy", "shop"]
+  }
+}

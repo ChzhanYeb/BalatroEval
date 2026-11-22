@@ -16,9 +16,9 @@ DEV_DIR = Path(__file__).resolve().parents[1] / "scenarios" / "dev"
 
 def base_dict(**overrides) -> dict:
     data = {
-        "scenario_schema_version": 1,
+        "scenario_schema_version": 2,
         "scenario_id": "test-scenario",
-        "rules_version": "vanilla_1.0.1o_subset_v1",
+        "rules_version": "vanilla_1.0.1o_subset_v2",
         "seed": 1,
         "origin": "synthetic_dev",
         "decision_type": "play",
@@ -31,6 +31,8 @@ def base_dict(**overrides) -> dict:
             "hands_left": 4,
             "discards_left": 4,
             "target": 300,
+            "money": None,
+            "shop_open": False,
         },
         "constraints": {"max_steps": 1, "allowed_action_kinds": ["play"]},
         "extensions": [],
@@ -48,19 +50,27 @@ class TestLoadDevScenarios(unittest.TestCase):
         ids = {s.scenario_id for s in scenarios}
         self.assertIn("dev-play-pair-7h7d", ids)
         self.assertIn("dev-episode-ante1-red-seed20261117", ids)
+        self.assertIn("dev-episode-economy-seed20261112", ids)
+        self.assertIn("dev-shop-buy-or-bank", ids)
 
     def test_reset_spec_for_decision_point(self):
         scenarios = {s.scenario_id: s for s in load_scenarios(DEV_DIR)}
         spec = to_reset_spec(scenarios["dev-play-pair-7h7d"])
         self.assertEqual(spec.allowed_action_kinds, ("play",))
-        self.assertEqual(spec.ruleset.shop_enabled, False)
+        self.assertTrue(spec.ruleset.shop_enabled)  # v2 商店是基础规则
+        self.assertFalse(spec.shop_open)
+        self.assertIsNone(spec.money)
         self.assertEqual(spec.hand_ids[0], "c7h")
 
-    def test_shop_extension_scenario_enables_shop(self):
+    def test_shop_decision_point_spec(self):
         scenarios = {s.scenario_id: s for s in load_scenarios(DEV_DIR)}
-        spec = to_reset_spec(scenarios["dev-episode-shop-extension-seed7"])
-        self.assertTrue(spec.ruleset.shop_enabled)
-        self.assertIn("free_joker_choice", scenarios["dev-episode-shop-extension-seed7"].extensions)
+        scenario = scenarios["dev-shop-buy-or-bank"]
+        spec = to_reset_spec(scenario)
+        self.assertTrue(spec.shop_open)
+        self.assertEqual(spec.money, 6)
+        self.assertEqual(scenario.decision_type, "shop")
+        self.assertEqual(set(spec.allowed_action_kinds),
+                         {"choose_joker", "sell_joker", "reroll_shop"})
 
 
 class TestValidationRejects(unittest.TestCase):
@@ -83,10 +93,30 @@ class TestValidationRejects(unittest.TestCase):
     def test_unknown_extension(self):
         self.assert_rejects(base_dict(extensions=["teleport"]), UnsupportedRuleError)
 
-    def test_extension_not_allowed_for_real_capture(self):
-        data = base_dict(origin="real_capture", extensions=["free_joker_choice"],
-                         metadata={"capture_id": "cap-1"})
-        self.assert_rejects(data, UnsupportedRuleError)
+    def test_free_joker_choice_extension_is_retired(self):
+        # v2：免费三选一已退役（付费商店取代），声明它也要被拒。
+        self.assert_rejects(base_dict(extensions=["free_joker_choice"]), UnsupportedRuleError)
+
+    def test_shop_decision_requires_shop_open(self):
+        data = base_dict(decision_type="shop")
+        self.assert_rejects(data)  # 没声明 shop_open=true
+
+    def test_shop_decision_rejects_non_shop_actions(self):
+        data = base_dict(decision_type="shop")
+        data["initial_state"]["shop_open"] = True
+        data["constraints"]["allowed_action_kinds"] = ["play"]
+        self.assert_rejects(data)
+
+    def test_shop_open_after_boss_rejected(self):
+        data = base_dict(decision_type="shop")
+        data["initial_state"].update({"shop_open": True, "blind_idx": 2})
+        data["boss_blind"] = {"name": "Boss", "effect": None}
+        self.assert_rejects(data)
+
+    def test_negative_money_rejected(self):
+        data = base_dict()
+        data["initial_state"]["money"] = -1
+        self.assert_rejects(data)
 
     def test_real_capture_requires_capture_id(self):
         self.assert_rejects(base_dict(origin="real_capture"))
